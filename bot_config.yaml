@@ -22,7 +22,7 @@ telegram:
 
 # --- Trading Symbol ---
 symbol: "XAUUSD"
-point_value: 1.0           # Dollar value per point for XAUUSD
+point_value: 100.0         # XAUUSD contract size: 100 troy ounces per lot (FIX #1)
 
 # --- Timeframes ---
 timeframes:
@@ -36,6 +36,9 @@ risk:
   max_position_risk: 2.0   # Maximum 2% of equity in concurrent trades
   max_concurrent_trades: 3 # Maximum number of simultaneous positions
   daily_loss_limit: 0.03   # 3% daily loss limit (circuit breaker)
+  weekly_loss_limit: 0.08  # 8% weekly loss limit (FIX #18)
+  max_drawdown_limit: 0.15 # 15% max drawdown from peak equity (FIX #18)
+  consecutive_loss_limit: 5 # Stop after N consecutive losses (FIX #18)
   min_equity: 100.0        # Minimum equity required to trade
 
 # --- Position Sizing ---
@@ -109,8 +112,11 @@ take_profit:
 trade_management:
   breakeven_at_r: 1.0      # Move to breakeven at 1.0R
   trail_at_r: 1.2          # Start trailing at 1.2R
-  trail_atr_mult: 0.6      # Trail using 0.6 * ATR
+  trail_atr_mult: 0.3      # Trail using 0.3 * ATR (FIX #15 - tighter trailing)
   max_hold_bars: 100       # Maximum bars to hold position (M5)
+  min_time_between_trades: 300  # Minimum 5 minutes between trades (FIX #19)
+  max_trades_per_session: 4     # Maximum trades per London/NY session (FIX #19)
+  cooloff_after_loss: 900       # 15 min cooloff after loss (FIX #19)
 
 # --- Lookback Periods ---
 lookback:
