@@ -1,0 +1,171 @@
+# ============================================================================
+# GOLDBOT - XAUUSD Breakout Trading System Configuration
+# ============================================================================
+
+# --- MetaTrader5 Connection ---
+mt5:
+  login: 12345678           # Replace with your MT5 account number
+  password: "your_password" # Replace with your MT5 password
+  server: "Exness-MT5Real"  # Replace with your broker server name
+  timeout: 60000            # Connection timeout in ms
+  path: ""                  # Path to MT5 terminal (leave empty for auto-detect)
+
+# --- Telegram Configuration ---
+telegram:
+  enabled: true
+  bot_token: "YOUR_BOT_TOKEN_HERE"  # Replace with your Telegram bot token
+  chat_id: "YOUR_CHAT_ID_HERE"      # Replace with your Telegram chat ID
+  send_startup: true
+  send_trades: true
+  send_errors: true
+  send_daily_summary: true
+
+# --- Trading Symbol ---
+symbol: "XAUUSD"
+point_value: 1.0           # Dollar value per point for XAUUSD
+
+# --- Timeframes ---
+timeframes:
+  primary: "M5"            # Primary analysis timeframe
+  confirm: "M1"            # Confirmation timeframe
+  bias: "H1"               # HTF bias timeframe
+
+# --- Risk Management ---
+risk:
+  risk_per_trade: 0.005    # 0.5% of equity per trade
+  max_position_risk: 2.0   # Maximum 2% of equity in concurrent trades
+  max_concurrent_trades: 3 # Maximum number of simultaneous positions
+  daily_loss_limit: 0.03   # 3% daily loss limit (circuit breaker)
+  min_equity: 100.0        # Minimum equity required to trade
+
+# --- Position Sizing ---
+position:
+  min_lot: 0.01            # Exness minimum lot size
+  max_lot: 10.0            # Maximum lot size
+  lot_step: 0.01           # Lot size increment
+
+# --- ATR / Volatility Settings ---
+atr:
+  period: 14
+  volatility_threshold: 0.8    # Minimum ATR in $ to allow trades
+  high_threshold: 2.0          # High volatility boundary
+
+# --- Scoring System ---
+scoring:
+  threshold_trade: 60      # Minimum score to enter trade
+  threshold_high: 80       # High confidence threshold
+
+  # Weights for scoring
+  weights:
+    session: 20
+    sweep: 30
+    rejection: 15
+    impulse: 20
+    fvg: 15
+    htf_bias_aligned: 10
+    htf_bias_opposed: -10
+    high_volatility: 5
+    volume_confirm: 5
+    narrow_range: -10
+
+# --- Session Windows (UTC) ---
+sessions:
+  london:
+    start: "07:00"
+    end: "10:30"
+  newyork:
+    start: "12:30"
+    end: "15:30"
+  no_trade:
+    start: "23:50"
+    end: "00:10"
+
+# --- News Filter ---
+news:
+  enabled: false           # Set to true to enable news filtering
+  buffer_minutes: 30       # Minutes before/after high-impact news
+
+# --- Spread & Filters ---
+filters:
+  max_spread: 0.18         # Maximum allowed spread in $
+
+# --- Retracement Settings ---
+retracement:
+  shallow_min: 0.10        # 10% minimum retrace for shallow entry
+  shallow_max: 0.40        # 40% maximum retrace for shallow entry
+  shallow_ratio: 0.30      # Default 30% retrace entry point
+
+# --- Stop Loss & Take Profit ---
+stop_loss:
+  buffer: 0.10             # $0.10 buffer above/below sweep wick
+  minimum: 2.50            # Minimum SL distance in $
+
+take_profit:
+  tp1_multiplier: 1.5      # TP1 = 1.5R
+  tp2_multiplier: 3.0      # TP2 = 3.0R
+  partial_close_pct: 0.5   # Close 50% at TP1
+
+# --- Trade Management ---
+trade_management:
+  breakeven_at_r: 1.0      # Move to breakeven at 1.0R
+  trail_at_r: 1.2          # Start trailing at 1.2R
+  trail_atr_mult: 0.6      # Trail using 0.6 * ATR
+  max_hold_bars: 100       # Maximum bars to hold position (M5)
+
+# --- Lookback Periods ---
+lookback:
+  swing: 5                 # Bars to look back for swing high/low
+  avg_body: 10             # Period for average body size calculation
+
+# --- Entry Models ---
+entry_models:
+  momentum_break:
+    enabled: true
+    execution_type: "IOC"  # Immediate or Cancel
+    max_slippage: 0.05     # Maximum allowed slippage in $
+
+  shallow_retest:
+    enabled: true
+    execution_type: "LIMIT"
+    cancel_after_bars: 3   # Cancel limit order after N M5 bars
+
+  fvg_sniper:
+    enabled: true
+    execution_type: "LIMIT"
+    fvg_entry_ratio: 0.5   # Enter at 50% of FVG zone
+    cancel_after_bars: 5
+
+# --- HTF Bias Settings ---
+htf_bias:
+  enabled: true
+  ema_period: 20           # EMA period on H1 for bias
+
+# --- Impulse / Displacement Settings ---
+impulse:
+  body_multiplier: 1.5     # Body must be 1.5x average
+  volume_enabled: false    # Volume confirmation (if available)
+  volume_multiplier: 1.2   # Volume must be 1.2x average
+
+# --- Operational Settings ---
+operational:
+  loop_sleep_seconds: 1    # Sleep time in main loop
+  order_retry_attempts: 3  # Retry failed orders N times
+  order_retry_delay: 2     # Seconds between retries
+  log_level: "INFO"        # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  log_file: "goldbot.log"
+
+# --- Backtest Settings ---
+backtest:
+  start_date: "2024-01-01"
+  end_date: "2024-12-31"
+  initial_balance: 10000.0
+  commission_per_lot: 0.0  # Commission if applicable
+  generate_report: true
+  report_file: "backtest_report.html"
+
+# --- Safety & Failsafes ---
+safety:
+  check_connection_interval: 60  # Check MT5 connection every N seconds
+  max_spread_multiplier: 2.0     # Exit if spread > normal * multiplier
+  idempotency_enabled: true      # Prevent duplicate orders
+  recheck_sl_tp: true            # Verify SL/TP after order placement
