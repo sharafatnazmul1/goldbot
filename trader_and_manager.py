@@ -4,7 +4,9 @@ import MetaTrader5 as mt5
 import logging
 import sqlite3
 import json
-from datetime import datetime, timezone
+import hashlib
+import time
+from datetime import datetime, timezone, timedelta
 from enum import Enum
 from contextlib import contextmanager
 
@@ -72,6 +74,10 @@ class TradeManager:
         self.session_trade_count = 0
         self.last_loss_time = None
 
+        # EDGE #2: Idempotency tracking to prevent duplicate orders
+        self.idempotency_enabled = config.get('safety', {}).get('idempotency_enabled', True)
+        self.recent_orders = {}  # {order_hash: timestamp}
+
         self._init_database()
         self._load_state()
 
@@ -132,6 +138,15 @@ class TradeManager:
         for row in cursor.execute('SELECT data_json FROM positions WHERE state = ?', (OrderState.FILLED.value,)):
             pos = json.loads(row[0])
             pos['entry_time'] = datetime.fromisoformat(pos['entry_time'])
+
+            # Ensure flags exist for backward compatibility (BUG #2 fix)
+            if 'partial_closed' not in pos:
+                pos['partial_closed'] = False
+            if 'breakeven_moved' not in pos:
+                pos['breakeven_moved'] = False
+            if 'trailing_active' not in pos:
+                pos['trailing_active'] = False
+
             self.active_positions[pos['ticket']] = pos
 
         for row in cursor.execute('SELECT data_json FROM positions WHERE state = ?', (OrderState.PENDING.value,)):
@@ -150,31 +165,39 @@ class TradeManager:
 
     def _save_position(self, pos):
         """Save position to database."""
-        pos_json = pos.copy()
-        for key in ['entry_time', 'order_time']:
-            if key in pos_json and isinstance(pos_json[key], datetime):
-                pos_json[key] = pos_json[key].isoformat()
+        # EDGE #5: Better transaction handling with error recovery
+        try:
+            pos_json = pos.copy()
+            for key in ['entry_time', 'order_time']:
+                if key in pos_json and isinstance(pos_json[key], datetime):
+                    pos_json[key] = pos_json[key].isoformat()
 
-        with self.db_conn:
-            self.db_conn.execute('''
-                INSERT OR REPLACE INTO positions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            ''', (
-                pos['ticket'],
-                pos.get('direction'),
-                pos.get('entry_price'),
-                pos.get('sl_price'),
-                pos.get('tp1_price'),
-                pos.get('tp2_price'),
-                pos.get('lot_size'),
-                pos.get('entry_model'),
-                pos_json.get('entry_time') or pos_json.get('order_time'),
-                pos.get('sl_distance'),
-                pos.get('state', OrderState.FILLED.value),
-                int(pos.get('partial_closed', False)),
-                int(pos.get('breakeven_moved', False)),
-                int(pos.get('trailing_active', False)),
-                json.dumps(pos_json)
-            ))
+            with self.db_conn:
+                self.db_conn.execute('''
+                    INSERT OR REPLACE INTO positions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ''', (
+                    pos['ticket'],
+                    pos.get('direction'),
+                    pos.get('entry_price'),
+                    pos.get('sl_price'),
+                    pos.get('tp1_price'),
+                    pos.get('tp2_price'),
+                    pos.get('lot_size'),
+                    pos.get('entry_model'),
+                    pos_json.get('entry_time') or pos_json.get('order_time'),
+                    pos.get('sl_distance'),
+                    pos.get('state', OrderState.FILLED.value),
+                    int(pos.get('partial_closed', False)),
+                    int(pos.get('breakeven_moved', False)),
+                    int(pos.get('trailing_active', False)),
+                    json.dumps(pos_json)
+                ))
+        except Exception as e:
+            logger.error(f"Failed to save position #{pos.get('ticket')}: {e}")
+            try:
+                self.db_conn.rollback()
+            except:
+                pass
 
     def _remove_position(self, ticket):
         """Remove position from database."""
@@ -183,33 +206,49 @@ class TradeManager:
 
     def _save_system_state(self, key, value):
         """Save system state."""
-        with self.db_conn:
-            self.db_conn.execute('''
-                INSERT OR REPLACE INTO system_state VALUES (?, ?, ?)
-            ''', (key, json.dumps(value), datetime.now(timezone.utc).isoformat()))
+        # EDGE #5: Better transaction handling with error recovery
+        try:
+            with self.db_conn:
+                self.db_conn.execute('''
+                    INSERT OR REPLACE INTO system_state VALUES (?, ?, ?)
+                ''', (key, json.dumps(value), datetime.now(timezone.utc).isoformat()))
+        except Exception as e:
+            logger.error(f"Failed to save system state {key}: {e}")
+            try:
+                self.db_conn.rollback()
+            except:
+                pass
 
     def _save_trade(self, trade):
         """Save completed trade to history."""
-        with self.db_conn:
-            self.db_conn.execute('''
-                INSERT INTO trade_history
-                (ticket, direction, entry_price, exit_price, lot_size, entry_time,
-                 exit_time, pnl, r_multiple, entry_model, exit_reason, score)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
-            ''', (
-                trade.get('ticket'),
-                trade.get('direction'),
-                trade.get('entry_price'),
-                trade.get('exit_price'),
-                trade.get('lot_size'),
-                trade.get('entry_time').isoformat() if isinstance(trade.get('entry_time'), datetime) else trade.get('entry_time'),
-                datetime.now(timezone.utc).isoformat(),
-                trade.get('pnl'),
-                trade.get('r_multiple'),
-                trade.get('entry_model'),
-                trade.get('exit_reason'),
-                trade.get('score')
-            ))
+        # EDGE #5: Better transaction handling with error recovery
+        try:
+            with self.db_conn:
+                self.db_conn.execute('''
+                    INSERT INTO trade_history
+                    (ticket, direction, entry_price, exit_price, lot_size, entry_time,
+                     exit_time, pnl, r_multiple, entry_model, exit_reason, score)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                ''', (
+                    trade.get('ticket'),
+                    trade.get('direction'),
+                    trade.get('entry_price'),
+                    trade.get('exit_price'),
+                    trade.get('lot_size'),
+                    trade.get('entry_time').isoformat() if isinstance(trade.get('entry_time'), datetime) else trade.get('entry_time'),
+                    datetime.now(timezone.utc).isoformat(),
+                    trade.get('pnl'),
+                    trade.get('r_multiple'),
+                    trade.get('entry_model'),
+                    trade.get('exit_reason'),
+                    trade.get('score')
+                ))
+        except Exception as e:
+            logger.error(f"Failed to save trade #{trade.get('ticket')}: {e}")
+            try:
+                self.db_conn.rollback()
+            except:
+                pass
 
     # Position sizing
 
@@ -453,6 +492,13 @@ class TradeManager:
         if not entry_levels:
             return {'success': False, 'reason': 'No entry levels'}
 
+        # EDGE #2: Idempotency check to prevent duplicate orders
+        if self.idempotency_enabled:
+            order_hash = self._generate_order_hash(direction, entry_levels)
+            if self._is_duplicate_order(order_hash):
+                logger.warning(f"Duplicate order detected, skipping: {direction} @ {entry_levels['entry_price']:.2f}")
+                return {'success': False, 'reason': 'Duplicate order (idempotency)'}
+
         passed, reason = self._check_risk_limits(equity)
         if not passed:
             return {'success': False, 'reason': reason}
@@ -460,6 +506,10 @@ class TradeManager:
         lot_size = self.calculate_position_size(equity, entry_levels['entry_price'], entry_levels['sl_price'])
         if lot_size < self.min_lot:
             return {'success': False, 'reason': 'Lot size too small'}
+
+        # Register order hash before execution
+        if self.idempotency_enabled:
+            self._register_order(order_hash)
 
         if entry_levels['order_type'] == 'MARKET':
             return self._execute_market_order(direction, entry_levels, lot_size)
@@ -500,7 +550,23 @@ class TradeManager:
         max_slip = self.entry_models['momentum_break'].get('max_slippage', 0.05)
         if slippage > max_slip:
             logger.warning(f"Excessive slippage {slippage:.2f}, closing")
-            self._close_position_by_ticket(result.order)
+            # FLAW #3 fix: Save slippage rejection to trade history
+            close_success = self._close_position_by_ticket(result.order)
+            if close_success:
+                trade = {
+                    'ticket': result.order,
+                    'direction': direction,
+                    'entry_price': result.price,
+                    'exit_price': result.price,  # Closed immediately
+                    'lot_size': lot,
+                    'entry_time': datetime.now(timezone.utc),
+                    'pnl': 0.0,  # Negligible
+                    'r_multiple': 0.0,
+                    'entry_model': levels['entry_model'],
+                    'exit_reason': 'SLIPPAGE_REJECT',
+                    'score': 0
+                }
+                self._save_trade(trade)
             return {'success': False, 'reason': f'Slippage {slippage:.2f}'}
 
         pos = {
@@ -519,6 +585,10 @@ class TradeManager:
             'breakeven_moved': False,
             'trailing_active': False
         }
+
+        # EDGE #3: Verify SL/TP were actually set correctly
+        if self.config.get('safety', {}).get('recheck_sl_tp', True):
+            self._verify_sl_tp(result.order, levels['sl_price'], levels['tp2_price'])
 
         self.active_positions[result.order] = pos
         self._save_position(pos)
@@ -588,6 +658,11 @@ class TradeManager:
                 del order_info['order_time']
                 del order_info['cancel_after_bars']
 
+                # Initialize position management flags (BUG #1 fix)
+                order_info['partial_closed'] = False
+                order_info['breakeven_moved'] = False
+                order_info['trailing_active'] = False
+
                 self.active_positions[ticket] = order_info
                 del self.pending_orders[ticket]
                 self._save_position(order_info)
@@ -632,10 +707,34 @@ class TradeManager:
             mt5_pos = self._get_position_by_ticket(ticket)
 
             if not mt5_pos:
-                to_remove.append(ticket)
-                trade = pos.copy()
-                trade['exit_reason'] = 'TP_SL'
-                self._save_trade(trade)
+                # EDGE #1 fix: Verify position actually closed (not just MT5 glitch)
+                # Double-check by querying again after brief pause
+                time.sleep(0.1)
+                mt5_pos = self._get_position_by_ticket(ticket)
+
+                if not mt5_pos:
+                    # Position truly closed - check if it was by TP/SL or manual
+                    logger.info(f"Position #{ticket} no longer in MT5, marking as closed")
+                    to_remove.append(ticket)
+
+                    # Try to get exit info from deals history
+                    exit_price = self._get_exit_price_from_history(ticket)
+                    if exit_price:
+                        profit = (exit_price - pos['entry_price']) if pos['direction'] == 'BULLISH' else (pos['entry_price'] - exit_price)
+                        pnl = profit * pos.get('lot_size', 0.0) * self.point_value
+                        r_mult = profit / pos['sl_distance'] if pos.get('sl_distance', 0) > 0 else 0
+
+                        trade = pos.copy()
+                        trade['exit_price'] = exit_price
+                        trade['exit_reason'] = 'TP_SL'
+                        trade['pnl'] = pnl
+                        trade['r_multiple'] = r_mult
+                        self._save_trade(trade)
+                    else:
+                        logger.warning(f"Could not retrieve exit price for #{ticket}, saving without P&L")
+                        trade = pos.copy()
+                        trade['exit_reason'] = 'CLOSED_EXTERNAL'
+                        self._save_trade(trade)
                 continue
 
             entry = pos['entry_price']
@@ -655,6 +754,7 @@ class TradeManager:
             # Trailing
             if not pos['trailing_active'] and r >= self.trail_at_r:
                 pos['trailing_active'] = True
+                self._save_position(pos)  # FLAW #5 fix: Persist state change
                 logger.info(f"Trailing activated: #{ticket}")
 
             if pos['trailing_active']:
@@ -665,7 +765,20 @@ class TradeManager:
                 bars_held = (datetime.now(timezone.utc) - pos['entry_time']).total_seconds() / 300
                 if bars_held >= self.max_hold_bars:
                     logger.warning(f"Max hold reached: #{ticket}")
-                    self._close_position_by_ticket(ticket)
+                    # FLAW #4 fix: Save time-based exit to trade history
+                    close_success = self._close_position_by_ticket(ticket)
+                    if close_success:
+                        # Calculate final P&L at current price
+                        profit = (current_price - pos['entry_price']) if pos['direction'] == 'BULLISH' else (pos['entry_price'] - current_price)
+                        pnl = profit * pos.get('lot_size', 0.0) * self.point_value
+                        r_mult = profit / pos['sl_distance'] if pos.get('sl_distance', 0) > 0 else 0
+
+                        trade = pos.copy()
+                        trade['exit_price'] = current_price
+                        trade['exit_reason'] = 'TIME_EXIT'
+                        trade['pnl'] = pnl
+                        trade['r_multiple'] = r_mult
+                        self._save_trade(trade)
                     to_remove.append(ticket)
 
         for ticket in to_remove:
@@ -675,10 +788,21 @@ class TradeManager:
 
     def _partial_close(self, ticket, pos, mt5_pos):
         """Close partial position at TP1 (70% for scalping)."""
+        # FLAW #1 fix: Skip partial close if lot size is already at minimum
+        # If placed lot is 0.01, we can't split it (0.01 * 0.7 = 0.007 rounds to 0.01 = 100%)
+        if mt5_pos.volume <= self.min_lot:
+            logger.info(f"Skipping partial close #{ticket}: lot {mt5_pos.volume:.2f} is minimum, can't split")
+            return
+
         volume = mt5_pos.volume * self.partial_pct
         volume = round(volume / self.lot_step) * self.lot_step
 
-        if volume < self.min_lot:
+        # Ensure both partial and remaining volumes are valid
+        remaining = mt5_pos.volume - volume
+        remaining = round(remaining / self.lot_step) * self.lot_step
+
+        if volume < self.min_lot or remaining < self.min_lot:
+            logger.info(f"Skipping partial close #{ticket}: partial {volume:.2f} or remaining {remaining:.2f} < min {self.min_lot:.2f}")
             return
 
         order_type = mt5.ORDER_TYPE_SELL if pos['direction'] == 'BULLISH' else mt5.ORDER_TYPE_BUY
@@ -701,8 +825,10 @@ class TradeManager:
 
         if result and result.retcode == mt5.TRADE_RETCODE_DONE:
             pos['partial_closed'] = True
+            # FLAW #2 fix: Update internal lot_size to reflect remaining position
+            pos['lot_size'] = remaining
             self._save_position(pos)
-            logger.info(f"Partial close: #{ticket}")
+            logger.info(f"Partial close: #{ticket} | Closed {volume:.2f} lots, remaining {remaining:.2f} lots")
 
     def _move_to_breakeven(self, ticket, pos, mt5_pos, entry_price):
         """Move SL to breakeven."""
@@ -745,12 +871,104 @@ class TradeManager:
         if result and result.retcode == mt5.TRADE_RETCODE_DONE:
             logger.info(f"Trailing SL: #{ticket} -> {new_sl:.2f}")
 
+    # SL/TP verification (EDGE #3)
+
+    def _verify_sl_tp(self, ticket, expected_sl, expected_tp):
+        """Verify SL/TP were set correctly after order placement."""
+        time.sleep(0.2)  # Brief delay to ensure MT5 updates
+
+        position = self._get_position_by_ticket(ticket)
+        if not position:
+            logger.warning(f"Could not verify SL/TP for #{ticket}: position not found")
+            return
+
+        # Check SL (allow small tolerance for rounding)
+        sl_diff = abs(position.sl - expected_sl) if position.sl else 999
+        tp_diff = abs(position.tp - expected_tp) if position.tp else 999
+
+        if sl_diff > 0.5:  # More than $0.50 difference
+            logger.error(f"SL verification failed for #{ticket}: expected {expected_sl:.2f}, got {position.sl:.2f}")
+            # Attempt to fix
+            self._fix_sl_tp(ticket, expected_sl, expected_tp)
+        elif tp_diff > 0.5:
+            logger.error(f"TP verification failed for #{ticket}: expected {expected_tp:.2f}, got {position.tp:.2f}")
+            # Attempt to fix
+            self._fix_sl_tp(ticket, expected_sl, expected_tp)
+        else:
+            logger.info(f"SL/TP verified for #{ticket}: SL={position.sl:.2f}, TP={position.tp:.2f}")
+
+    def _fix_sl_tp(self, ticket, correct_sl, correct_tp):
+        """Attempt to fix incorrect SL/TP."""
+        result = mt5.order_send({
+            "action": mt5.TRADE_ACTION_SLTP,
+            "symbol": self.symbol,
+            "position": ticket,
+            "sl": correct_sl,
+            "tp": correct_tp,
+        })
+
+        if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+            logger.info(f"Fixed SL/TP for #{ticket}")
+        else:
+            logger.error(f"Failed to fix SL/TP for #{ticket}: {result.comment if result else 'No result'}")
+
+    # Idempotency helpers (EDGE #2)
+
+    def _generate_order_hash(self, direction, entry_levels):
+        """Generate unique hash for order to detect duplicates."""
+        # Use direction, entry price (rounded), and entry model as unique identifier
+        entry_rounded = round(entry_levels['entry_price'], 1)  # Round to $0.10
+        hash_input = f"{direction}:{entry_rounded}:{entry_levels['entry_model']}"
+        return hashlib.md5(hash_input.encode()).hexdigest()
+
+    def _is_duplicate_order(self, order_hash):
+        """Check if order hash was recently executed."""
+        if order_hash not in self.recent_orders:
+            return False
+
+        # Check if order is still recent (within 5 minutes)
+        order_time = self.recent_orders[order_hash]
+        age = (datetime.now(timezone.utc) - order_time).total_seconds()
+        if age > 300:  # 5 minutes
+            # Old entry, clean it up
+            del self.recent_orders[order_hash]
+            return False
+
+        return True
+
+    def _register_order(self, order_hash):
+        """Register order hash to prevent duplicates."""
+        self.recent_orders[order_hash] = datetime.now(timezone.utc)
+
+        # Clean up old entries (older than 10 minutes)
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
+        self.recent_orders = {h: t for h, t in self.recent_orders.items() if t > cutoff}
+
     # Helpers
 
     def _get_position_by_ticket(self, ticket):
         """Get MT5 position by ticket."""
         positions = mt5.positions_get(symbol=self.symbol)
         return next((p for p in positions if p.ticket == ticket), None) if positions else None
+
+    def _get_exit_price_from_history(self, ticket):
+        """Get exit price from MT5 deals history (EDGE #1 helper)."""
+        try:
+            # Query last 24 hours of deals
+            now = datetime.now(timezone.utc)
+            from_date = now - timedelta(days=1)
+            deals = mt5.history_deals_get(from_date, now)
+
+            if deals:
+                # Find exit deal matching this position ticket
+                for deal in reversed(deals):  # Start from most recent
+                    if deal.position_id == ticket and deal.entry == mt5.DEAL_ENTRY_OUT:
+                        return deal.price
+
+            return None
+        except Exception as e:
+            logger.error(f"Error getting exit price from history: {e}")
+            return None
 
     def _close_position_by_ticket(self, ticket):
         """Close position completely."""
