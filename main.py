@@ -393,13 +393,14 @@ def run_live_trading(config):
                     trader.reset_session_count()
                 last_session = current_session
 
+                # Get current price for position management
+                tick = mt5.symbol_info_tick(symbol)
+                current_price = tick.bid if tick else None
+                spread = tick.ask - tick.bid if tick else 999.0
+
                 # New bar check
                 if current_bar_time > last_bar_time:
                     last_bar_time = current_bar_time
-
-                    tick = mt5.symbol_info_tick(symbol)
-                    spread = tick.ask - tick.bid if tick else 999.0
-                    current_price = tick.bid if tick else None
 
                     if current_price:
                         # Analyze
