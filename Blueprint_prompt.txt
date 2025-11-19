@@ -1,0 +1,289 @@
+You are an Enterprise Algo Trading Engineer and Quantitative Trader specializing in XAUUSD breakout strategies. Build a modular, production-grade Python bot according to the following instructions. Do not compromise on any specifications. You may enhance or override minor details if it improves robustness, stability, and production-readiness.
+
+1) Project Structure
+
+The project must contain three modular Python files:
+
+main.py – entry point; handles live/backtest modes with robust detailed logging for whole project
+
+analyst.py – all signal generation, calculations, scoring, and filtering
+
+trader_and_manager.py – execution, position sizing, trade management, and fail-safes
+
+All configuration settings must be stored in one file:
+
+bot_config.yaml
+
+Other requirements:
+Run 24/7 loop
+
+Telegram messaging via Python requests module
+
+Trading engine via MetaTrader5 Python module, using modern best practices
+
+No environment variables
+
+Run commands:
+
+main.py --backtest  # for backtesting
+main.py --live      # for live trading
+
+2) Timeframes & Risk Settings
+PRIMARY_TF = "M5"
+CONFIRM_TF = "M1"
+BIAS_TF = "H1"
+
+RISK_PER_TRADE = 0.5/100      # 0.5% of equity
+EQUITY = account_equity        # dynamic
+MAX_POSITION_RISK = 2.0        # % of equity concurrently
+
+3) ATR / Volatility Settings
+ATR_PERIOD = 14
+ATR_VOL_THRESHOLD = 0.8        # minimum ATR in $ to trade
+ATR_HIGH_THRESHOLD = 2.0       # high volatility boundary
+
+4) Scoring Thresholds
+SCORE_THRESHOLD_TRADE = 60
+SCORE_HIGH = 80
+
+5) Session Windows (UTC)
+LONDON_START = "07:00"; LONDON_END = "10:30"
+NY_START     = "12:30"; NY_END     = "15:30"
+NO_TRADE_START = "23:50"; NO_TRADE_END = "00:10"
+
+6) Spread & Retrace Filters
+MAX_SPREAD = 0.18               # adjust for broker exness standard account
+SHALLOW_RETRACE_MIN = 0.10      # 10%
+SHALLOW_RETRACE_MAX = 0.40      # 40%
+STOP_BUFFER = 0.10              # $0.10 above sweep wick
+SL_MIN = 2.50                   # minimum SL
+PARTIAL_CLOSE_PCT = 0.5         # 50% close at TP1
+TP1_MULTIPLIER = 1.5
+TP2_MULTIPLIER = 3.0
+BREAKEVEN_AT_R = 1.0
+TRAIL_AT_R = 1.2
+TRAIL_ATR_MULT = 0.6
+
+7) Lookbacks
+SWING_LOOKBACK = 5        # previous 3 bars
+AVG_BODY_PERIOD = 10
+
+8) Features to Implement
+
+Session filter (London/NY)
+
+Optional news/no-trade window (disabled by default)
+
+Spread check
+
+ATR volatility filter
+
+Swing detection (local high/low)
+
+Liquidity sweep detection
+
+Rejection wick math
+
+Displacement/impulse confirmation
+
+FVG detection (2-bar imbalance)
+
+Three-entry engine: Momentum Break (A), Shallow Retest (B), Midpoint/FVG (C)
+
+Scoring engine (hard + soft filters)
+
+Position sizing via dynamic ATR formula
+
+Trade management: partial TP, breakeven, dynamic trailing, failsafes
+
+HTF trend bias (H1 EMA20)
+
+Order idempotency and re-checking
+
+9) Low-Level Formulae (Use Exactly)
+ATR (M5)
+ATR_M5 = ATR(close_M5, ATR_PERIOD)
+
+Swing High/Low (last SWING_LOOKBACK bars)
+swing_high = max(high[i-SWING_LOOKBACK : i-1])
+swing_low  = min(low[i-SWING_LOOKBACK : i-1])
+
+Liquidity Sweep (SELL Example)
+cond1 = high[i] > swing_high
+cond2 = close[i] < swing_high
+cond3 = (high[i] - close[i]) > body_size[i]
+sweep_bear = cond1 AND cond2 AND cond3
+
+
+(BUY swap high/low accordingly)
+
+Rejection Wick
+wick_up = high[i] - max(open[i], close[i])
+wick_down = min(open[i], close[i]) - low[i]
+body = abs(close[i] - open[i])
+rejection_bear = wick_up >= body * 1.0
+rejection_bull = wick_down >= body * 1.0
+
+Impulse / Displacement Confirmation
+body_size = abs(close[i] - open[i])
+avg_body = SMA(abs(close-open), AVG_BODY_PERIOD)
+impulse = body_size > 1.5 * avg_body
+# optional: volume[i] > SMA(volume, AVG_BODY_PERIOD)
+
+FVG (2-bar imbalance)
+FVG_bull = low[i] > high[i-2]
+FVG_bear = high[i] < low[i-2]
+FVG_zone = (low[i-2], high[i-1])  # entry zone
+
+Retrace % (Bear Example)
+D_high = max(open[i], close[i])
+D_low  = min(open[i], close[i])
+retrace_pct = (D_high - current_price) / (D_high - D_low)
+
+10) Scoring Engine (Weights)
+
+Hard Killers – must pass:
+
+spread > MAX_SPREAD → BLOCK
+
+ATR_M5 < ATR_VOL_THRESHOLD → BLOCK
+
+account_equity < minimum_required → BLOCK
+
+(optional) news window → BLOCK
+
+Soft Scoring:
+
+score = 0
+if current_time in session: score += 20
+if sweep: score += 30
+if rejection: score += 15
+if impulse: score += 20
+if FVG exists: score += 15
+if HTF_bias aligned: score += 10 else score -= 10
+if ATR_M5 > ATR_HIGH_THRESHOLD: score += 5
+if volume confirms impulse: score += 5
+if recent_range_width < threshold: score -= 10
+
+
+Trade allowed if:
+
+TOTAL_SCORE >= SCORE_THRESHOLD_TRADE
+
+11) ENTRY MODELS (full conditional logic)***
+A) Momentum Break Entry (MBO/E) — captures no-retrace fast moves
+
+Condition (SELL example):
+
+# 1) There is a bearish sweep + displacement
+IF sweep_bear AND impulse:
+
+    # 2) Next candle (i+1 on M5) breaks displacement low (momentum continuation)
+    IF low[i+1] < D_low:
+        ENTRY_A = market order at break_of_D_low (or aggressive limit 1 tick inside)
+
+        SL_A = sweep_high + STOP_BUFFER
+        raw_R_A = abs(entry - SL_A)
+        SL_distance = max(raw_R_A, SL_MIN)
+
+        TP1_A = entry - SL_distance * TP1_MULTIPLIER
+        TP2_A = entry - SL_distance * TP2_MULTIPLIER
+
+
+Execution notes:
+
+Use IOC or FOK to enter quickly.
+
+If slippage > allowed, cancel trade.
+
+B) Shallow Retest Entry (SRE) — captures 10–40% retraces
+
+Condition (SELL example):
+
+IF sweep_bear AND impulse:
+    # compute retrace_pct based on displacement bounds
+    IF SHALLOW_RETRACE_MIN <= retrace_pct <= SHALLOW_RETRACE_MAX:
+        entry_price = D_low + SHALLOW_RETRACE_RATIO*(D_high - D_low)   # use 30% default
+        ENTRY_B = limit order at entry_price
+
+        SL_B = sweep_high + STOP_BUFFER
+        SL_distance = max(abs(entry_price - SL_B), SL_MIN)
+
+        TP1_B = entry_price - SL_distance * TP1_MULTIPLIER
+        TP2_B = entry_price - SL_distance * TP2_MULTIPLIER
+
+
+Notes:
+
+Use limit entry; cancel if not filled within X bars (e.g., 3 M5 bars).
+
+C) Midpoint / FVG Sniper Entry (SFE) — deep retrace capture
+
+Condition (SELL example):
+
+IF FVG_bear exists:
+    entry_price = midpoint(FVG_zone)   # or dynamic: 40%–60% inside
+    ENTRY_C = limit order at entry_price
+
+    SL_C = sweep_high + STOP_BUFFER
+    SL_distance = max(abs(entry_price - SL_C), SL_MIN)
+    TP1_C = entry_price - SL_distance * TP1_MULTIPLIER
+    TP2_C = entry_price - SL_distance * TP2_MULTIPLIER
+
+12) Position Sizing
+risk_dollars = EQUITY * RISK_PER_TRADE
+SL_distance = abs(entry_price - SL)
+lot = risk_dollars / SL_distance / point_value
+# enforce MAX_POSITION_RISK and exness broker min lot
+
+13) Trade Management
+
+Partial TP1 close → breakeven → trailing → TP2
+
+Opposite displacement or invalidation → exit immediately
+
+Time-based exit → MAX_HOLD_BARS
+
+Spread spike / liquidity drain exit
+
+Daily loss limit & circuit breaker
+
+14) Operational Safety
+
+Idempotency of orders
+
+SL/TP re-check after slippage
+
+Simultaneous trades cap
+
+Logging of all events
+
+Minimum sample size for backtest
+
+15) Backtest / Walkforward
+
+Test all variants (A/B/C and combined) on bull, bear, sideways for ≥6 months
+
+Walk-forward optimize SCORE_THRESHOLD_TRADE, SHALLOW_RETRACE_RATIO, STOP_BUFFER
+
+Monte Carlo for daily loss / position sizing
+
+16) Final Decision Flow (Pseudo-Code)
+on_new_M5_bar(i):
+    update ATR, swings, HTF_bias, spread, news_flag
+    if killers fail: return
+
+    detect sweep, rejection, impulse, FVG
+    compute retrace_pct, compute score
+    if score < SCORE_THRESHOLD_TRADE: return
+
+    if sweep & impulse & nextbar_breaks_displacement: ENTRY_A
+    elif sweep & impulse & SHALLOW_RETRACE_MIN <= retrace_pct <= SHALLOW_RETRACE_MAX: ENTRY_B
+    elif FVG exists & price in FVG_zone: ENTRY_C
+    elif score >= SCORE_HIGH & momentum visible: ENTRY_A aggressive
+    else: return
+
+    # after filled:
+    compute SL_distance, lot
+    place SL and TP1/TP2
+    monitor ticks: partial close, breakeven, trailing, failsafe
