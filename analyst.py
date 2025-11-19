@@ -21,6 +21,7 @@ class MarketAnalyst:
         self.atr_high = config['atr']['high_threshold']
         self.max_spread = config['filters']['max_spread']
         self.sessions = config['sessions']
+        self.session_buffers = config.get('session_buffers', {'enabled': False})
         self.weights = config['scoring']['weights']
         self.score_threshold = config['scoring']['threshold_trade']
         self.shallow_min = config['retracement']['shallow_min']
@@ -115,11 +116,73 @@ class MarketAnalyst:
         return (london[0] <= t <= london[1]) or (ny[0] <= t <= ny[1])
 
     def is_no_trade_window(self, current_time):
-        """Check if in no-trade window (handles midnight crossing)."""
+        """Check if in no-trade window or session buffer zone."""
         t = current_time.time()
+
+        # Check original no-trade window (23:50 - 00:10)
         start = datetime.strptime(self.sessions['no_trade']['start'], "%H:%M").time()
         end = datetime.strptime(self.sessions['no_trade']['end'], "%H:%M").time()
-        return (t >= start or t <= end) if start > end else (start <= t <= end)
+        in_no_trade = (t >= start or t <= end) if start > end else (start <= t <= end)
+
+        if in_no_trade:
+            return True
+
+        # Check session buffer zones (if enabled)
+        if self.session_buffers.get('enabled', False):
+            buffer_hit, reason = self._is_in_buffer_zone(current_time)
+            if buffer_hit:
+                logger.info(f"No-trade: {reason}")
+                return True
+
+        return False
+
+    def _is_in_buffer_zone(self, current_time):
+        """Check if current time is within any session transition buffer zone."""
+        from datetime import timedelta
+
+        t = current_time.time()
+        current_minutes = t.hour * 60 + t.minute
+
+        # Check each configured buffer zone
+        buffer_zones = [
+            ('london_open', self.session_buffers.get('london_open')),
+            ('london_close', self.session_buffers.get('london_close')),
+            ('newyork_open', self.session_buffers.get('newyork_open')),
+            ('newyork_close', self.session_buffers.get('newyork_close'))
+        ]
+
+        for zone_name, zone_config in buffer_zones:
+            if not zone_config:
+                continue
+
+            # Parse transition time
+            transition_time = datetime.strptime(zone_config['time'], "%H:%M").time()
+            transition_minutes = transition_time.hour * 60 + transition_time.minute
+
+            # Get buffer in minutes
+            buffer_mins = zone_config.get('buffer_minutes', 0)
+
+            # Calculate buffer window
+            buffer_start = transition_minutes - buffer_mins
+            buffer_end = transition_minutes + buffer_mins
+
+            # Check if current time is within buffer (handle negative values for day wrap)
+            if buffer_start < 0:
+                # Wraps to previous day (e.g., 06:30 - 30 = -30 = 23:30 previous day)
+                buffer_start += 1440  # Add 24 hours in minutes
+                if current_minutes >= buffer_start or current_minutes <= buffer_end:
+                    return True, f"{zone_name} buffer zone ({zone_config.get('reason', 'transition volatility')})"
+            elif buffer_end >= 1440:
+                # Wraps to next day
+                buffer_end -= 1440
+                if current_minutes >= buffer_start or current_minutes <= buffer_end:
+                    return True, f"{zone_name} buffer zone ({zone_config.get('reason', 'transition volatility')})"
+            else:
+                # Normal case - no day wrap
+                if buffer_start <= current_minutes <= buffer_end:
+                    return True, f"{zone_name} buffer zone ({zone_config.get('reason', 'transition volatility')})"
+
+        return False, ""
 
     def check_hard_filters(self, spread, atr_current, equity):
         """Check blocking filters."""

@@ -94,6 +94,34 @@ sessions:
     start: "23:50"
     end: "00:10"
 
+# --- Session Transition Buffers (No-Trade Zones) ---
+# Avoid volatile periods around session opens/closes and overlaps
+session_buffers:
+  enabled: true
+
+  # Buffer around major session transitions (minutes)
+  # These create no-trade zones before/after these times
+
+  london_open:
+    time: "07:00"              # Tokyo-London overlap starts here
+    buffer_minutes: 30         # 06:30 - 07:30 no-trade zone
+    reason: "Tokyo-London overlap volatility"
+
+  london_close:
+    time: "10:30"
+    buffer_minutes: 15         # 10:15 - 10:45 no-trade zone
+    reason: "London close volatility"
+
+  newyork_open:
+    time: "12:30"              # London-NY overlap starts here
+    buffer_minutes: 30         # 12:00 - 13:00 no-trade zone
+    reason: "London-NY overlap volatility"
+
+  newyork_close:
+    time: "15:30"
+    buffer_minutes: 15         # 15:15 - 15:45 no-trade zone
+    reason: "NY close volatility"
+
 # --- News Filter ---
 news:
   enabled: false           # Set to true to enable news filtering
