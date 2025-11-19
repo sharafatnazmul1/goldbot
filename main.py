@@ -47,9 +47,9 @@ def setup_logging(config):
     ch.setFormatter(logging.Formatter('%(asctime)s | %(message)s', datefmt='%H:%M:%S'))
     root.addHandler(ch)
 
-    logger.info("═" * 80)
+    logger.info("")
     logger.info("GOLDBOT - XAUUSD Breakout Trading System")
-    logger.info("═" * 80)
+    logger.info("")
 
 
 def load_config(path='bot_config.yaml'):
@@ -482,25 +482,36 @@ def run_backtest(config):
         mt5.shutdown()
         return
 
-    logger.info("=" * 80)
+    logger.info("")
     logger.info("SCALPING BACKTEST RESULTS")
-    logger.info("=" * 80)
+    logger.info("")
     logger.info(f"Initial Balance: ${results['initial_balance']:.2f}")
     logger.info(f"Final Equity: ${results['final_equity']:.2f}")
     logger.info(f"Total Return: ${results['total_return']:.2f} ({results['total_return_pct']:.2f}%)")
     logger.info(f"Total Trades: {results['total_trades']}")
-    logger.info(f"Winning Trades: {results['winning_trades']} ({results['win_rate']:.1f}%)")
-    logger.info(f"Losing Trades: {results['losing_trades']}")
-    logger.info(f"Avg Win: ${results['avg_win']:.2f} ({results['avg_win_r']:.2f}R)")
-    logger.info(f"Avg Loss: ${results['avg_loss']:.2f} ({results['avg_loss_r']:.2f}R)")
-    logger.info(f"Profit Factor: {results['profit_factor']:.2f}")
-    logger.info(f"Max Drawdown: ${results['max_drawdown']:.2f} ({results['max_drawdown_pct']:.2f}%)")
-    logger.info(f"Max Consecutive Wins: {results['max_consecutive_wins']}")
-    logger.info(f"Max Consecutive Losses: {results['max_consecutive_losses']}")
-    logger.info(f"Partial Closes (TP1): {results['partial_closes']}")
-    logger.info(f"Avg Trade Duration: {results['avg_trade_duration_minutes']:.1f} minutes")
-    logger.info(f"Exit Reasons: {results['exit_reasons']}")
-    logger.info("=" * 80)
+
+    if results['total_trades'] == 0:
+        logger.warning("No trades executed during backtest period")
+        logger.warning("Possible reasons:")
+        logger.warning("  1. No liquidity sweep setups detected")
+        logger.warning("  2. Spread too high (max allowed: $0.18)")
+        logger.warning("  3. Score threshold not met (need >60)")
+        logger.warning("  4. Outside trading sessions (London/NY)")
+        logger.warning("  5. ATR too low (need >$0.80)")
+    else:
+        logger.info(f"Winning Trades: {results['winning_trades']} ({results['win_rate']:.1f}%)")
+        logger.info(f"Losing Trades: {results['losing_trades']}")
+        logger.info(f"Avg Win: ${results['avg_win']:.2f} ({results['avg_win_r']:.2f}R)")
+        logger.info(f"Avg Loss: ${results['avg_loss']:.2f} ({results['avg_loss_r']:.2f}R)")
+        logger.info(f"Profit Factor: {results['profit_factor']:.2f}")
+        logger.info(f"Max Drawdown: ${results['max_drawdown']:.2f} ({results['max_drawdown_pct']:.2f}%)")
+        logger.info(f"Max Consecutive Wins: {results['max_consecutive_wins']}")
+        logger.info(f"Max Consecutive Losses: {results['max_consecutive_losses']}")
+        logger.info(f"Partial Closes (TP1): {results['partial_closes']}")
+        logger.info(f"Avg Trade Duration: {results['avg_trade_duration_minutes']:.1f} minutes")
+        logger.info(f"Exit Reasons: {results['exit_reasons']}")
+
+    logger.info("")
 
     mt5.shutdown()
 
