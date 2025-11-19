@@ -27,6 +27,7 @@ class TradeManager:
 
         # Risk parameters
         self.risk_per_trade = config['risk']['risk_per_trade']
+        self.dynamic_risk_tiers = config['risk'].get('dynamic_risk_tiers', [])
         self.max_position_risk = config['risk']['max_position_risk']
         self.max_concurrent = config['risk']['max_concurrent_trades']
         self.daily_loss_limit = config['risk']['daily_loss_limit']
@@ -212,9 +213,21 @@ class TradeManager:
 
     # Position sizing
 
+    def get_dynamic_risk(self, equity):
+        """Get risk percentage based on account size tiers."""
+        if not self.dynamic_risk_tiers:
+            return self.risk_per_trade
+
+        for tier in self.dynamic_risk_tiers:
+            if equity <= tier['max_equity']:
+                return tier['risk_pct']
+
+        return self.risk_per_trade
+
     def calculate_position_size(self, equity, entry_price, sl_price):
         """Calculate lot size based on risk."""
-        risk_dollars = equity * self.risk_per_trade
+        risk_pct = self.get_dynamic_risk(equity)
+        risk_dollars = equity * risk_pct
         sl_distance = abs(entry_price - sl_price)
 
         if sl_distance == 0:
@@ -225,7 +238,7 @@ class TradeManager:
         lot = round(lot / self.lot_step) * self.lot_step
         lot = max(self.min_lot, min(lot, self.max_lot))
 
-        logger.info(f"Position: {lot:.2f} lots, risk ${risk_dollars:.2f}, SL ${sl_distance:.2f}")
+        logger.info(f"Position: {lot:.2f} lots, risk {risk_pct*100:.1f}% (${risk_dollars:.2f}), SL ${sl_distance:.2f}")
         return lot
 
     # Entry level calculation
@@ -661,7 +674,7 @@ class TradeManager:
                 self._remove_position(ticket)
 
     def _partial_close(self, ticket, pos, mt5_pos):
-        """Close 50% at TP1."""
+        """Close partial position at TP1 (70% for scalping)."""
         volume = mt5_pos.volume * self.partial_pct
         volume = round(volume / self.lot_step) * self.lot_step
 

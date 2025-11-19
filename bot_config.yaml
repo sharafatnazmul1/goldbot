@@ -30,16 +30,27 @@ timeframes:
   confirm: "M1"            # Confirmation timeframe
   bias: "H1"               # HTF bias timeframe
 
-# --- Risk Management ---
+# --- Risk Management (SCALPING) ---
 risk:
-  risk_per_trade: 0.005    # 0.5% of equity per trade
-  max_position_risk: 50.0   # Maximum 2% of equity in concurrent trades
-  max_concurrent_trades: 3 # Maximum number of simultaneous positions
-  daily_loss_limit: 0.33   # 3% daily loss limit (circuit breaker)
-  weekly_loss_limit: 0.66  # 8% weekly loss limit (FIX #18)
-  max_drawdown_limit: 0.34 # 15% max drawdown from peak equity (FIX #18)
-  consecutive_loss_limit: 5 # Stop after N consecutive losses (FIX #18)
-  min_equity: 10.0        # Minimum equity required to trade
+  risk_per_trade: 0.08     # 8% default - scales down with account growth (see dynamic_risk_tiers)
+  max_position_risk: 16.0  # Maximum 16% in concurrent positions (2 trades @ 8%)
+  max_concurrent_trades: 2 # Maximum 2 simultaneous scalps
+  daily_loss_limit: 0.15   # 15% daily loss limit for scalping
+  weekly_loss_limit: 0.25  # 25% weekly loss limit
+  max_drawdown_limit: 0.30 # 30% max drawdown from peak
+  consecutive_loss_limit: 6 # Stop after 6 consecutive losses
+  min_equity: 10.0         # Scalping works from $10
+
+  # Dynamic risk scaling for account growth (equity ranges)
+  dynamic_risk_tiers:
+    - max_equity: 50.0
+      risk_pct: 0.08       # 8% for accounts under $50
+    - max_equity: 100.0
+      risk_pct: 0.05       # 5% for $50-$100
+    - max_equity: 500.0
+      risk_pct: 0.02       # 2% for $100-$500
+    - max_equity: 9999999
+      risk_pct: 0.01       # 1% for accounts above $500
 
 # --- Position Sizing ---
 position:
@@ -104,19 +115,19 @@ stop_loss:
   minimum: 2.50            # Minimum SL distance in $
 
 take_profit:
-  tp1_multiplier: 1.3      # TP1 = 1.5R
-  tp2_multiplier: 2.6      # TP2 = 3.0R
-  partial_close_pct: 0.5   # Close 50% at TP1
+  tp1_multiplier: 0.8      # TP1 = 0.8R (quick scalp exit)
+  tp2_multiplier: 1.5      # TP2 = 1.5R (max scalp target)
+  partial_close_pct: 0.7   # Close 70% at TP1, let 30% run to TP2
 
-# --- Trade Management ---
+# --- Trade Management (SCALPING) ---
 trade_management:
-  breakeven_at_r: 1.0      # Move to breakeven at 1.0R
-  trail_at_r: 1.2          # Start trailing at 1.2R
-  trail_atr_mult: 0.3      # Trail using 0.3 * ATR (FIX #15 - tighter trailing)
-  max_hold_bars: 100       # Maximum bars to hold position (M5)
-  min_time_between_trades: 300  # Minimum 5 minutes between trades (FIX #19)
-  max_trades_per_session: 4     # Maximum trades per London/NY session (FIX #19)
-  cooloff_after_loss: 900       # 15 min cooloff after loss (FIX #19)
+  breakeven_at_r: 0.3      # Move to breakeven at 0.3R (early protection)
+  trail_at_r: 999.0        # Trailing DISABLED for scalping (use fixed TP only)
+  trail_atr_mult: 0.3      # Not used (trailing disabled)
+  max_hold_bars: 8         # Maximum 8 M5 bars = 40 minutes hold time
+  min_time_between_trades: 60   # Minimum 60 seconds between trades
+  max_trades_per_session: 20    # Up to 20 trades per session (scalping frequency)
+  cooloff_after_loss: 120       # 2 min cooloff after loss (quick recovery)
 
 # --- Lookback Periods ---
 lookback:
