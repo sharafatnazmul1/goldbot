@@ -34,7 +34,7 @@ timeframes:
 risk:
   risk_per_trade: 0.08     # 8% default - scales down with account growth (see dynamic_risk_tiers)
   max_position_risk: 16.0  # Maximum 16% in concurrent positions (2 trades @ 8%)
-  max_concurrent_trades: 2 # Maximum 2 simultaneous scalps
+  max_concurrent_trades: 1 # Maximum 2 simultaneous scalps
   daily_loss_limit: 0.15   # 15% daily loss limit for scalping
   weekly_loss_limit: 0.25  # 25% weekly loss limit
   max_drawdown_limit: 0.30 # 30% max drawdown from peak
@@ -54,9 +54,9 @@ risk:
 
 # --- Position Sizing ---
 position:
-  min_lot: 0.01            # Exness minimum lot size
+  min_lot: 0.02            # Exness minimum lot size
   max_lot: 10.0            # Maximum lot size
-  lot_step: 0.01           # Lot size increment
+  lot_step: 0.02           # Lot size increment
 
 # --- ATR / Volatility Settings ---
 atr:
@@ -67,7 +67,7 @@ atr:
 # --- Scoring System ---
 scoring:
   threshold_trade: 50     # Minimum score to enter trade
-  threshold_high: 70       # High confidence threshold
+  threshold_high: 75       # High confidence threshold
 
   # Weights for scoring
   weights:
@@ -88,8 +88,8 @@ sessions:
     start: "07:00"
     end: "10:30"
   newyork:
-    start: "12:30"
-    end: "15:30"
+    start: "13:20"
+    end: "15:00"
   no_trade:
     start: "23:50"
     end: "00:10"
@@ -103,23 +103,23 @@ session_buffers:
   # These create no-trade zones before/after these times
 
   london_open:
-    time: "07:00"              # Tokyo-London overlap starts here
-    buffer_minutes: 30         # 06:30 - 07:30 no-trade zone
+    time: "08:30"              # Tokyo-London overlap starts here
+    buffer_minutes: 60         # 07:30 - 09:30 no-trade zone
     reason: "Tokyo-London overlap volatility"
 
   london_close:
-    time: "10:30"
-    buffer_minutes: 15         # 10:15 - 10:45 no-trade zone
+    time: "16:00"
+    buffer_minutes: 30         # 15:30 - 16:30 no-trade zone
     reason: "London close volatility"
 
   newyork_open:
-    time: "12:30"              # London-NY overlap starts here
-    buffer_minutes: 30         # 12:00 - 13:00 no-trade zone
+    time: "13:00"              # London-NY overlap starts here
+    buffer_minutes: 30         # 12:30 - 13:30 no-trade zone
     reason: "London-NY overlap volatility"
 
   newyork_close:
-    time: "15:30"
-    buffer_minutes: 15         # 15:15 - 15:45 no-trade zone
+    time: "22:00"
+    buffer_minutes: 30         # 21:30 - 22:30 no-trade zone
     reason: "NY close volatility"
 
 # --- News Filter ---
