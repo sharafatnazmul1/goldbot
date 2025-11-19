@@ -102,7 +102,7 @@ class TelegramNotifier:
         if not self.enabled:
             return
 
-        msg = f"⚠️ <b>DEGRADATION ALERT</b>\n\n" \
+        msg = f"<b>DEGRADATION ALERT</b>\n\n" \
               f"Regime: {regime['volatility']} vol, {regime['trend']} trend\n" \
               f"Win rate: {metrics.get('win_rate', 0)*100:.1f}%\n" \
               f"Profit factor: {metrics.get('profit_factor', 0):.2f}\n" \
@@ -112,7 +112,7 @@ class TelegramNotifier:
     def send_error(self, error_msg):
         """Send error notification."""
         if self.enabled and self.send_errors:
-            self._send(f"⚠️ Error: {error_msg}")
+            self._send(f"Error: {error_msg}")
 
 
 class MarketRegimeDetector:
@@ -156,7 +156,7 @@ class MarketRegimeDetector:
 
         if self.last_regime and regime != self.last_regime:
             if is_favorable != self.last_regime.get('favorable_for_breakouts'):
-                logger.warning(f"⚠️ Regime change: {regime}")
+                logger.warning(f"Regime change: {regime}")
 
         self.last_regime = regime
         return regime
@@ -367,7 +367,7 @@ def run_live_trading(config):
                                     f"favorable={regime['favorable_for_breakouts']}")
 
                         if not regime['favorable_for_breakouts']:
-                            logger.warning("⚠️ Unfavorable regime for breakouts")
+                            logger.warning("Unfavorable regime for breakouts")
 
                         # Check degradation
                         cursor = trader.db_conn.cursor()
@@ -377,12 +377,12 @@ def run_live_trading(config):
                         if len(recent_trades) >= 20:
                             degradation, metrics = regime_detector.check_degradation(recent_trades)
                             if degradation:
-                                logger.error(f"⚠️ Degradation detected: {degradation}")
+                                logger.error(f"Degradation detected: {degradation}")
                                 telegram.send_degradation_alert(regime, metrics)
 
                                 if metrics.get('severity') == 'SEVERE':
-                                    logger.critical("🛑 STOPPING due to severe degradation")
-                                    telegram._send("🛑 BOT STOPPED - Severe degradation")
+                                    logger.critical("STOPPING due to severe degradation")
+                                    telegram._send("BOT STOPPED - Severe degradation")
                                     break
 
                     last_regime_check = now
@@ -403,6 +403,8 @@ def run_live_trading(config):
                     last_bar_time = current_bar_time
 
                     if current_price:
+                        logger.info(f"New M5 bar | Price: ${current_price:.2f} | Spread: ${spread:.2f}")
+
                         # Analyze
                         analysis = analyst.analyze_market(
                             df_m5=df_m5,
@@ -412,6 +414,12 @@ def run_live_trading(config):
                             spread=spread,
                             equity=equity
                         )
+
+                        # Log analysis result
+                        if analysis['trade_allowed']:
+                            logger.info(f"SIGNAL: {analysis['direction']} | Score: {analysis['score']} | Reason: {analysis['reason']}")
+                        else:
+                            logger.info(f"No trade | Reason: {analysis['reason']}")
 
                         # Execute if signal
                         if analysis['trade_allowed']:
@@ -430,7 +438,9 @@ def run_live_trading(config):
                                     trade_info['risk_dollars'] = equity * config['risk']['risk_per_trade']
                                     telegram.send_trade(trade_info)
                                 else:
-                                    logger.debug(f"Trade blocked: {result['reason']}")
+                                    logger.warning(f"Trade blocked: {result['reason']}")
+                            else:
+                                logger.warning("Entry levels calculation failed")
 
                 # Manage orders and positions
                 trader.manage_pending_orders()
@@ -452,7 +462,7 @@ def run_live_trading(config):
 
     finally:
         logger.info("Shutting down...")
-        telegram._send("🛑 GOLDBOT stopped")
+        telegram._send("GOLDBOT stopped")
         trader.close_database()
         mt5.shutdown()
 
