@@ -47,9 +47,9 @@ def setup_logging(config):
     ch.setFormatter(logging.Formatter('%(asctime)s | %(message)s', datefmt='%H:%M:%S'))
     root.addHandler(ch)
 
-    
+    logger.info("═" * 80)
     logger.info("GOLDBOT - XAUUSD Breakout Trading System")
-    
+    logger.info("═" * 80)
 
 
 def load_config(path='bot_config.yaml'):
@@ -89,8 +89,8 @@ class TelegramNotifier:
         if not self.enabled or not self.send_trades:
             return
 
-        
-        msg = f"<b>{trade_info['direction']}</b> | {trade_info['entry_model']}\n" \
+        emoji = "🟢" if trade_info['direction'] == 'BULLISH' else "🔴"
+        msg = f"{emoji} <b>{trade_info['direction']}</b> | {trade_info['entry_model']}\n" \
               f"Entry: ${trade_info['entry_price']:.2f} | SL: ${trade_info['sl_price']:.2f}\n" \
               f"TP1: ${trade_info['tp1_price']:.2f} | TP2: ${trade_info['tp2_price']:.2f}\n" \
               f"Size: {trade_info['lot_size']:.2f} lots | Score: {trade_info.get('score', 0)}\n" \
@@ -102,7 +102,7 @@ class TelegramNotifier:
         if not self.enabled:
             return
 
-        msg = f" <b>DEGRADATION ALERT</b>\n\n" \
+        msg = f"⚠️ <b>DEGRADATION ALERT</b>\n\n" \
               f"Regime: {regime['volatility']} vol, {regime['trend']} trend\n" \
               f"Win rate: {metrics.get('win_rate', 0)*100:.1f}%\n" \
               f"Profit factor: {metrics.get('profit_factor', 0):.2f}\n" \
@@ -112,7 +112,7 @@ class TelegramNotifier:
     def send_error(self, error_msg):
         """Send error notification."""
         if self.enabled and self.send_errors:
-            self._send(f" Error: {error_msg}")
+            self._send(f"⚠️ Error: {error_msg}")
 
 
 class MarketRegimeDetector:
@@ -156,7 +156,7 @@ class MarketRegimeDetector:
 
         if self.last_regime and regime != self.last_regime:
             if is_favorable != self.last_regime.get('favorable_for_breakouts'):
-                logger.warning(f" Regime change: {regime}")
+                logger.warning(f"⚠️ Regime change: {regime}")
 
         self.last_regime = regime
         return regime
@@ -367,7 +367,7 @@ def run_live_trading(config):
                                     f"favorable={regime['favorable_for_breakouts']}")
 
                         if not regime['favorable_for_breakouts']:
-                            logger.warning(" Unfavorable regime for breakouts")
+                            logger.warning("⚠️ Unfavorable regime for breakouts")
 
                         # Check degradation
                         cursor = trader.db_conn.cursor()
@@ -377,12 +377,12 @@ def run_live_trading(config):
                         if len(recent_trades) >= 20:
                             degradation, metrics = regime_detector.check_degradation(recent_trades)
                             if degradation:
-                                logger.error(f" Degradation detected: {degradation}")
+                                logger.error(f"⚠️ Degradation detected: {degradation}")
                                 telegram.send_degradation_alert(regime, metrics)
 
                                 if metrics.get('severity') == 'SEVERE':
-                                    logger.critical(" STOPPING due to severe degradation")
-                                    telegram._send(" BOT STOPPED - Severe degradation")
+                                    logger.critical("🛑 STOPPING due to severe degradation")
+                                    telegram._send("🛑 BOT STOPPED - Severe degradation")
                                     break
 
                     last_regime_check = now
@@ -452,191 +452,56 @@ def run_live_trading(config):
 
     finally:
         logger.info("Shutting down...")
-        telegram._send(" GOLDBOT stopped")
+        telegram._send("🛑 GOLDBOT stopped")
         trader.close_database()
         mt5.shutdown()
 
 
 def run_backtest(config):
-    """Run realistic backtest with proper fills and slippage."""
-    logger.info("Starting BACKTEST mode")
+    """Run scalping backtest using dedicated backtest module."""
+    from backtest import ScalpingBacktest
 
-    analyst = MarketAnalyst(config)
+    logger.info("Starting BACKTEST mode")
 
     if not connect_mt5(config):
         logger.error("MT5 connection failed")
         return
 
-    symbol = config['symbol']
     start_date = datetime.strptime(config['backtest']['start_date'], '%Y-%m-%d')
     end_date = datetime.strptime(config['backtest']['end_date'], '%Y-%m-%d')
     initial_balance = config['backtest']['initial_balance']
 
-    logger.info(f"Period: {start_date.date()} to {end_date.date()} | Initial: ${initial_balance:.2f}")
+    start_date = start_date.replace(tzinfo=timezone.utc)
+    end_date = end_date.replace(tzinfo=timezone.utc)
 
-    # Fetch M5 and H1 data
-    logger.info("Fetching historical data...")
-    days = (end_date - start_date).days
-    bars_needed = min(days * 288, 50000)
+    backtester = ScalpingBacktest(config)
+    results = backtester.run(start_date, end_date, initial_balance)
 
-    df_m5 = get_ohlc_data(symbol, mt5.TIMEFRAME_M5, bars_needed)
-    df_h1 = get_ohlc_data(symbol, mt5.TIMEFRAME_H1, min(days * 24, 10000))
-
-    if df_m5 is None or df_h1 is None:
-        logger.error("Failed to fetch data")
+    if results is None:
+        logger.error("Backtest failed")
         mt5.shutdown()
         return
 
-    df_m5 = df_m5[(df_m5['time'] >= start_date) & (df_m5['time'] <= end_date)]
-    df_h1 = df_h1[(df_h1['time'] >= start_date) & (df_h1['time'] <= end_date)]
+    logger.info("=" * 80)
+    logger.info("SCALPING BACKTEST RESULTS")
+    logger.info("=" * 80)
+    logger.info(f"Initial Balance: ${results['initial_balance']:.2f}")
+    logger.info(f"Final Equity: ${results['final_equity']:.2f}")
+    logger.info(f"Total Return: ${results['total_return']:.2f} ({results['total_return_pct']:.2f}%)")
+    logger.info(f"Total Trades: {results['total_trades']}")
+    logger.info(f"Winning Trades: {results['winning_trades']} ({results['win_rate']:.1f}%)")
+    logger.info(f"Losing Trades: {results['losing_trades']}")
+    logger.info(f"Avg Win: ${results['avg_win']:.2f} ({results['avg_win_r']:.2f}R)")
+    logger.info(f"Avg Loss: ${results['avg_loss']:.2f} ({results['avg_loss_r']:.2f}R)")
+    logger.info(f"Profit Factor: {results['profit_factor']:.2f}")
+    logger.info(f"Max Drawdown: ${results['max_drawdown']:.2f} ({results['max_drawdown_pct']:.2f}%)")
+    logger.info(f"Max Consecutive Wins: {results['max_consecutive_wins']}")
+    logger.info(f"Max Consecutive Losses: {results['max_consecutive_losses']}")
+    logger.info(f"Partial Closes (TP1): {results['partial_closes']}")
+    logger.info(f"Avg Trade Duration: {results['avg_trade_duration_minutes']:.1f} minutes")
+    logger.info(f"Exit Reasons: {results['exit_reasons']}")
+    logger.info("=" * 80)
 
-    logger.info(f"Loaded {len(df_m5)} M5 bars, {len(df_h1)} H1 bars")
-
-    # Backtest simulation
-    equity = initial_balance
-    trades = []
-    open_positions = []
-    equity_curve = []
-
-    logger.info("Running simulation...")
-
-    lookback = 100
-    for i in range(lookback, len(df_m5)):
-        bar = df_m5.iloc[i]
-        window_m5 = df_m5.iloc[:i+1]
-
-        # Get corresponding H1 window
-        window_h1 = df_h1[df_h1['time'] <= bar['time']]
-
-        spread = 0.15  # Realistic avg spread
-        current_time = bar['time']
-        current_price = bar['close']
-
-        # Check exits on open positions FIRST (use bar OHLC, not just close)
-        for pos in list(open_positions):
-            hit_sl = False
-            hit_tp = False
-
-            if pos['direction'] == 'BULLISH':
-                # Check if low hit SL or high hit TP
-                if bar['low'] <= pos['sl_price']:
-                    hit_sl = True
-                    exit_price = pos['sl_price']
-                elif bar['high'] >= pos['tp2_price']:
-                    hit_tp = True
-                    exit_price = pos['tp2_price']
-            else:  # BEARISH
-                if bar['high'] >= pos['sl_price']:
-                    hit_sl = True
-                    exit_price = pos['sl_price']
-                elif bar['low'] <= pos['tp2_price']:
-                    hit_tp = True
-                    exit_price = pos['tp2_price']
-
-            if hit_sl:
-                pnl = ((exit_price - pos['entry_price']) if pos['direction'] == 'BULLISH' else
-                       (pos['entry_price'] - exit_price)) * pos['lot_size'] * 100
-                r_mult = -1.0
-                equity += pnl
-                trades.append({**pos, 'exit_price': exit_price, 'pnl': pnl, 'r_multiple': r_mult, 'exit_reason': 'SL'})
-                open_positions.remove(pos)
-
-            elif hit_tp:
-                pnl = ((exit_price - pos['entry_price']) if pos['direction'] == 'BULLISH' else
-                       (pos['entry_price'] - exit_price)) * pos['lot_size'] * 100
-                r_mult = 3.0
-                equity += pnl
-                trades.append({**pos, 'exit_price': exit_price, 'pnl': pnl, 'r_multiple': r_mult, 'exit_reason': 'TP'})
-                open_positions.remove(pos)
-
-        # New signals (limit positions)
-        if len(open_positions) < 2:
-            try:
-                analysis = analyst.analyze_market(
-                    df_m5=window_m5,
-                    df_m1=window_m5,  # Use M5 as M1 proxy for backtest
-                    df_h1=window_h1,
-                    current_time=current_time,
-                    spread=spread,
-                    equity=equity
-                )
-
-                if analysis['trade_allowed']:
-                    direction = analysis['direction']
-                    setup_data = analysis['setup_data']
-
-                    entry_price = current_price
-
-                    if direction == 'BEARISH':
-                        sl_price = setup_data.get('swing_high', current_price + 5.0) + 0.10
-                    else:
-                        sl_price = setup_data.get('swing_low', current_price - 5.0) - 0.10
-
-                    sl_distance = abs(entry_price - sl_price)
-                    sl_distance = max(sl_distance, 2.50)
-
-                    if direction == 'BEARISH':
-                        tp2_price = entry_price - (sl_distance * 3.0)
-                    else:
-                        tp2_price = entry_price + (sl_distance * 3.0)
-
-                    # Realistic position sizing
-                    risk_dollars = equity * 0.005
-                    lot_size = risk_dollars / (sl_distance * 100.0)
-                    lot_size = max(0.01, min(lot_size, 1.0))
-
-                    # Realistic slippage (0.5-1 pip)
-                    slippage = 0.005 * (1 if direction == 'BULLISH' else -1)
-                    entry_price += slippage
-
-                    position = {
-                        'direction': direction,
-                        'entry_price': entry_price,
-                        'sl_price': sl_price,
-                        'tp2_price': tp2_price,
-                        'lot_size': lot_size,
-                        'entry_time': current_time,
-                        'score': analysis['score']
-                    }
-
-                    open_positions.append(position)
-
-            except Exception as e:
-                pass  # Silently skip analysis errors in backtest
-
-        equity_curve.append({'time': current_time, 'equity': equity})
-
-    # Close remaining positions
-    for pos in open_positions:
-        pnl = 0
-        trades.append({**pos, 'exit_price': current_price, 'pnl': pnl, 'r_multiple': 0, 'exit_reason': 'EOD'})
-
-    # Results
-    
-    logger.info("BACKTEST RESULTS")
-    
-    logger.info(f"Initial Balance: ${initial_balance:.2f}")
-    logger.info(f"Final Equity: ${equity:.2f}")
-    logger.info(f"Total P&L: ${equity - initial_balance:.2f}")
-    logger.info(f"Return: {((equity / initial_balance - 1) * 100):.2f}%")
-    logger.info(f"Total Trades: {len(trades)}")
-
-    if trades:
-        wins = [t for t in trades if t['pnl'] > 0]
-        losses = [t for t in trades if t['pnl'] < 0]
-
-        win_rate = len(wins) / len(trades) * 100
-        avg_win = np.mean([t['pnl'] for t in wins]) if wins else 0
-        avg_loss = np.mean([abs(t['pnl']) for t in losses]) if losses else 1
-
-        logger.info(f"Wins: {len(wins)} | Losses: {len(losses)} | Win Rate: {win_rate:.1f}%")
-        logger.info(f"Avg Win: ${avg_win:.2f} | Avg Loss: ${avg_loss:.2f}")
-
-        if losses:
-            pf = sum([t['pnl'] for t in wins]) / sum([abs(t['pnl']) for t in losses])
-            logger.info(f"Profit Factor: {pf:.2f}")
-
-    
     mt5.shutdown()
 
 

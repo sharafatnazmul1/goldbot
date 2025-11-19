@@ -262,7 +262,7 @@ class MarketAnalyst:
             result['signals'] = signals
             result['setup_data'] = setup_data
             result['reason'] = f"{direction} setup, score={score}"
-            logger.info(f"✓ Trade signal: {result['reason']}")
+            logger.info(f"Trade signal: {result['reason']}")
         else:
             result['reason'] = f"Score {score} < {self.score_threshold}"
 
