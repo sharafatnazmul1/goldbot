@@ -526,7 +526,7 @@ class TradeManager:
         self.last_trade_time = datetime.now(timezone.utc)
         self.session_trade_count += 1
 
-        logger.info(f"✓ Order filled: #{result.order} @ {result.price:.2f}")
+        logger.info(f"Order filled: #{result.order} @ {result.price:.2f}")
         return {'success': True, 'ticket': result.order, 'position_info': pos}
 
     def _execute_limit_order(self, direction, levels, lot):
@@ -570,7 +570,7 @@ class TradeManager:
         self.pending_orders[result.order] = pending
         self._save_position(pending)
 
-        logger.info(f"✓ Limit order: #{result.order} @ {levels['entry_price']:.2f}")
+        logger.info(f"Limit order: #{result.order} @ {levels['entry_price']:.2f}")
         return {'success': True, 'ticket': result.order, 'pending': True}
 
     # Pending order management
@@ -702,7 +702,7 @@ class TradeManager:
         if result and result.retcode == mt5.TRADE_RETCODE_DONE:
             pos['partial_closed'] = True
             self._save_position(pos)
-            logger.info(f"✓ Partial close: #{ticket}")
+            logger.info(f"Partial close: #{ticket}")
 
     def _move_to_breakeven(self, ticket, pos, mt5_pos, entry_price):
         """Move SL to breakeven."""
@@ -717,7 +717,7 @@ class TradeManager:
         if result and result.retcode == mt5.TRADE_RETCODE_DONE:
             pos['breakeven_moved'] = True
             self._save_position(pos)
-            logger.info(f"✓ Breakeven: #{ticket}")
+            logger.info(f"Breakeven: #{ticket}")
 
     def _update_trailing_stop(self, ticket, pos, mt5_pos, current_price, atr):
         """Update trailing stop."""
@@ -743,7 +743,7 @@ class TradeManager:
         })
 
         if result and result.retcode == mt5.TRADE_RETCODE_DONE:
-            logger.info(f"✓ Trailing SL: #{ticket} → {new_sl:.2f}")
+            logger.info(f"Trailing SL: #{ticket} -> {new_sl:.2f}")
 
     # Helpers
 
