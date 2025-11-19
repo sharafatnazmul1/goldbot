@@ -4,15 +4,15 @@
 
 # --- MetaTrader5 Connection ---
 mt5:
-  login: 12345678           # Replace with your MT5 account number
-  password: "your_password" # Replace with your MT5 password
-  server: "Exness-MT5Real"  # Replace with your broker server name
+  login: 270151243           # Replace with your MT5 account number
+  password: "@@Sharafatnh6@@" # Replace with your MT5 password
+  server: "Exness-MT5Trial17"  # Replace with your broker server name
   timeout: 60000            # Connection timeout in ms
-  path: ""                  # Path to MT5 terminal (leave empty for auto-detect)
+  path: C:\Program Files\MetaTrader 5\terminal64.exe                # Path to MT5 terminal (leave empty for auto-detect)
 
 # --- Telegram Configuration ---
 telegram:
-  enabled: true
+  enabled: false
   bot_token: "YOUR_BOT_TOKEN_HERE"  # Replace with your Telegram bot token
   chat_id: "YOUR_CHAT_ID_HERE"      # Replace with your Telegram chat ID
   send_startup: true
@@ -21,7 +21,7 @@ telegram:
   send_daily_summary: true
 
 # --- Trading Symbol ---
-symbol: "XAUUSD"
+symbol: "XAUUSDm"
 point_value: 100.0         # XAUUSD contract size: 100 troy ounces per lot (FIX #1)
 
 # --- Timeframes ---
@@ -131,7 +131,7 @@ trade_management:
 
 # --- Lookback Periods ---
 lookback:
-  swing: 5                 # Bars to look back for swing high/low
+  swing: 7                 # Bars to look back for swing high/low
   avg_body: 10             # Period for average body size calculation
 
 # --- Entry Models ---
@@ -139,7 +139,7 @@ entry_models:
   momentum_break:
     enabled: true
     execution_type: "IOC"  # Immediate or Cancel
-    max_slippage: 0.05     # Maximum allowed slippage in $
+    max_slippage: 0.10     # Maximum allowed slippage in $
 
   shallow_retest:
     enabled: true
@@ -173,10 +173,10 @@ operational:
 
 # --- Backtest Settings ---
 backtest:
-  start_date: "2024-01-01"
-  end_date: "2024-12-31"
-  initial_balance: 10000.0
-  commission_per_lot: 0.0  # Commission if applicable
+  start_date: "2025-01-01"
+  end_date: "2025-10-30"
+  initial_balance: 100.0
+  commission_per_lot: 0.18  # Commission if applicable
   generate_report: true
   report_file: "backtest_report.html"
 

@@ -1,0 +1,9 @@
+2025-11-19 13:47:16 | INFO     | __main__ | GOLDBOT - XAUUSD Breakout Trading System
+2025-11-19 13:47:16 | INFO     | __main__ | Starting LIVE TRADING mode
+2025-11-19 13:47:16 | INFO     | trader_and_manager | Loaded 0 positions, 0 pending
+2025-11-19 13:47:16 | INFO     | __main__ | Connected: Exness-MT5Trial17 | Account: 270151243 | Balance: $27.86
+2025-11-19 13:47:16 | INFO     | __main__ | Symbol XAUUSDm ready | Spread: 160 pts
+2025-11-19 13:47:16 | INFO     | __main__ | Entering main loop...
+2025-11-19 13:47:17 | INFO     | __main__ | Regime: NORMAL vol, STRONG_BULL trend, favorable=True
+2025-11-19 13:47:36 | INFO     | __main__ | Keyboard interrupt, shutting down...
+2025-11-19 13:47:36 | INFO     | __main__ | Shutting down...

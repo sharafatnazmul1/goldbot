@@ -47,9 +47,9 @@ def setup_logging(config):
     ch.setFormatter(logging.Formatter('%(asctime)s | %(message)s', datefmt='%H:%M:%S'))
     root.addHandler(ch)
 
-    logger.info("═" * 80)
+    
     logger.info("GOLDBOT - XAUUSD Breakout Trading System")
-    logger.info("═" * 80)
+    
 
 
 def load_config(path='bot_config.yaml'):
@@ -89,8 +89,8 @@ class TelegramNotifier:
         if not self.enabled or not self.send_trades:
             return
 
-        emoji = "🟢" if trade_info['direction'] == 'BULLISH' else "🔴"
-        msg = f"{emoji} <b>{trade_info['direction']}</b> | {trade_info['entry_model']}\n" \
+        
+        msg = f"<b>{trade_info['direction']}</b> | {trade_info['entry_model']}\n" \
               f"Entry: ${trade_info['entry_price']:.2f} | SL: ${trade_info['sl_price']:.2f}\n" \
               f"TP1: ${trade_info['tp1_price']:.2f} | TP2: ${trade_info['tp2_price']:.2f}\n" \
               f"Size: {trade_info['lot_size']:.2f} lots | Score: {trade_info.get('score', 0)}\n" \
@@ -102,7 +102,7 @@ class TelegramNotifier:
         if not self.enabled:
             return
 
-        msg = f"⚠️ <b>DEGRADATION ALERT</b>\n\n" \
+        msg = f" <b>DEGRADATION ALERT</b>\n\n" \
               f"Regime: {regime['volatility']} vol, {regime['trend']} trend\n" \
               f"Win rate: {metrics.get('win_rate', 0)*100:.1f}%\n" \
               f"Profit factor: {metrics.get('profit_factor', 0):.2f}\n" \
@@ -112,7 +112,7 @@ class TelegramNotifier:
     def send_error(self, error_msg):
         """Send error notification."""
         if self.enabled and self.send_errors:
-            self._send(f"⚠️ Error: {error_msg}")
+            self._send(f" Error: {error_msg}")
 
 
 class MarketRegimeDetector:
@@ -156,7 +156,7 @@ class MarketRegimeDetector:
 
         if self.last_regime and regime != self.last_regime:
             if is_favorable != self.last_regime.get('favorable_for_breakouts'):
-                logger.warning(f"⚠️ Regime change: {regime}")
+                logger.warning(f" Regime change: {regime}")
 
         self.last_regime = regime
         return regime
@@ -367,7 +367,7 @@ def run_live_trading(config):
                                     f"favorable={regime['favorable_for_breakouts']}")
 
                         if not regime['favorable_for_breakouts']:
-                            logger.warning("⚠️ Unfavorable regime for breakouts")
+                            logger.warning(" Unfavorable regime for breakouts")
 
                         # Check degradation
                         cursor = trader.db_conn.cursor()
@@ -377,12 +377,12 @@ def run_live_trading(config):
                         if len(recent_trades) >= 20:
                             degradation, metrics = regime_detector.check_degradation(recent_trades)
                             if degradation:
-                                logger.error(f"⚠️ Degradation detected: {degradation}")
+                                logger.error(f" Degradation detected: {degradation}")
                                 telegram.send_degradation_alert(regime, metrics)
 
                                 if metrics.get('severity') == 'SEVERE':
-                                    logger.critical("🛑 STOPPING due to severe degradation")
-                                    telegram._send("🛑 BOT STOPPED - Severe degradation")
+                                    logger.critical(" STOPPING due to severe degradation")
+                                    telegram._send(" BOT STOPPED - Severe degradation")
                                     break
 
                     last_regime_check = now
@@ -452,7 +452,7 @@ def run_live_trading(config):
 
     finally:
         logger.info("Shutting down...")
-        telegram._send("🛑 GOLDBOT stopped")
+        telegram._send(" GOLDBOT stopped")
         trader.close_database()
         mt5.shutdown()
 
@@ -612,9 +612,9 @@ def run_backtest(config):
         trades.append({**pos, 'exit_price': current_price, 'pnl': pnl, 'r_multiple': 0, 'exit_reason': 'EOD'})
 
     # Results
-    logger.info("═" * 80)
+    
     logger.info("BACKTEST RESULTS")
-    logger.info("═" * 80)
+    
     logger.info(f"Initial Balance: ${initial_balance:.2f}")
     logger.info(f"Final Equity: ${equity:.2f}")
     logger.info(f"Total P&L: ${equity - initial_balance:.2f}")
@@ -636,7 +636,7 @@ def run_backtest(config):
             pf = sum([t['pnl'] for t in wins]) / sum([abs(t['pnl']) for t in losses])
             logger.info(f"Profit Factor: {pf:.2f}")
 
-    logger.info("═" * 80)
+    
     mt5.shutdown()
 
 
