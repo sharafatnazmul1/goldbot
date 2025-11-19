@@ -21,7 +21,7 @@ telegram:
   send_daily_summary: true
 
 # --- Trading Symbol ---
-symbol: "XAUUSDm"
+symbol: "XAUUSD"
 point_value: 100.0         # XAUUSD contract size: 100 troy ounces per lot (FIX #1)
 
 # --- Timeframes ---
@@ -131,7 +131,7 @@ trade_management:
 
 # --- Lookback Periods ---
 lookback:
-  swing: 7                 # Bars to look back for swing high/low
+  swing: 5                 # Bars to look back for swing high/low
   avg_body: 10             # Period for average body size calculation
 
 # --- Entry Models ---
@@ -139,7 +139,7 @@ entry_models:
   momentum_break:
     enabled: true
     execution_type: "IOC"  # Immediate or Cancel
-    max_slippage: 0.10     # Maximum allowed slippage in $
+    max_slippage: 0.05     # Maximum allowed slippage in $
 
   shallow_retest:
     enabled: true
