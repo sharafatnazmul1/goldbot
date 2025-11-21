@@ -7,8 +7,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-MIN_BODY_SIZE = 0.50  # Minimum body size in dollars to avoid doji false signals
-
+MIN_BODY_SIZE = 0.50  # Minimum body size in dollars
 
 class MarketAnalyst:
     def __init__(self, config):
@@ -28,7 +27,7 @@ class MarketAnalyst:
         self.shallow_max = config['retracement']['shallow_max']
 
     def calculate_atr(self, df, period=None):
-        """Calculate ATR using Wilder's smoothing (EMA with alpha=1/period)."""
+        """Calculate ATR using Wilder's smoothing."""
         period = period or self.atr_period
         tr = pd.concat([
             df['high'] - df['low'],
@@ -37,29 +36,43 @@ class MarketAnalyst:
         ], axis=1).max(axis=1)
         return tr.ewm(alpha=1/period, adjust=False).mean()
 
-    def detect_swing_high(self, df, lookback=None):
-        """Detect swing highs over lookback period."""
-        lookback = lookback or self.swing_lookback
-        return df['high'].rolling(lookback, min_periods=1).max().shift(1)
+    def detect_swing_high(self, df, lookback=5):
+        """FIX: Confirmed swing high - price must drop 0.1% from peak"""
+        rolling_max = df['high'].rolling(lookback, min_periods=lookback).max()
+        confirmed = df['high'] < (rolling_max * 0.999)
+        return rolling_max.where(confirmed).shift(lookback)
 
-    def detect_swing_low(self, df, lookback=None):
-        """Detect swing lows over lookback period."""
-        lookback = lookback or self.swing_lookback
-        return df['low'].rolling(lookback, min_periods=1).min().shift(1)
+    def detect_swing_low(self, df, lookback=5):
+        """FIX: Confirmed swing low - price must rise 0.1% from trough"""
+        rolling_min = df['low'].rolling(lookback, min_periods=lookback).min()
+        confirmed = df['low'] > (rolling_min * 1.001)
+        return rolling_min.where(confirmed).shift(lookback)
 
     def detect_sweep_bull(self, df, swing_low):
-        """Detect bullish liquidity sweep: low breaks swing_low, close recovers above."""
+        """FIX: Detect bullish liquidity sweep with volume confirmation."""
         body = abs(df['close'] - df['open'])
         wick_down = np.minimum(df['open'], df['close']) - df['low']
+        
+        # FIX: Add volume confirmation
+        avg_volume = df['volume'].rolling(20).mean()
+        volume_spike = df['volume'] > (avg_volume * 2.0)
+        
         return (df['low'] < swing_low) & (df['close'] > swing_low) & \
-               (wick_down > body) & (body >= MIN_BODY_SIZE)
+               (wick_down > body) & (body >= MIN_BODY_SIZE) & \
+               volume_spike
 
     def detect_sweep_bear(self, df, swing_high):
-        """Detect bearish liquidity sweep: high breaks swing_high, close recovers below."""
+        """FIX: Detect bearish liquidity sweep with volume confirmation."""
         body = abs(df['close'] - df['open'])
         wick_up = df['high'] - np.maximum(df['open'], df['close'])
+        
+        # FIX: Add volume confirmation
+        avg_volume = df['volume'].rolling(20).mean()
+        volume_spike = df['volume'] > (avg_volume * 2.0)
+        
         return (df['high'] > swing_high) & (df['close'] < swing_high) & \
-               (wick_up > body) & (body >= MIN_BODY_SIZE)
+               (wick_up > body) & (body >= MIN_BODY_SIZE) & \
+               volume_spike
 
     def detect_rejection_bull(self, df):
         """Detect bullish rejection wick."""
@@ -79,7 +92,7 @@ class MarketAnalyst:
         return abs(df['close'] - df['open']).rolling(period).mean()
 
     def detect_impulse_bull(self, df, avg_body=None):
-        """Detect bullish impulse candle (body > multiplier * avg_body)."""
+        """Detect bullish impulse candle."""
         avg_body = avg_body if avg_body is not None else self.calculate_avg_body(df)
         body = abs(df['close'] - df['open'])
         return (body > self.impulse_mult * avg_body) & (df['close'] > df['open'])
@@ -127,7 +140,7 @@ class MarketAnalyst:
         if in_no_trade:
             return True
 
-        # Check session buffer zones (if enabled)
+        # FIX: Check session buffers
         if self.session_buffers.get('enabled', False):
             buffer_hit, reason = self._is_in_buffer_zone(current_time)
             if buffer_hit:
@@ -137,51 +150,41 @@ class MarketAnalyst:
         return False
 
     def _is_in_buffer_zone(self, current_time):
-        """Check if current time is within any session transition buffer zone."""
-        from datetime import timedelta
-
+        """FIX: Robust session buffer check using datetime objects."""
+        from datetime import datetime, timedelta
+        
         t = current_time.time()
         current_minutes = t.hour * 60 + t.minute
-
-        # Check each configured buffer zone
+        
         buffer_zones = [
             ('london_open', self.session_buffers.get('london_open')),
             ('london_close', self.session_buffers.get('london_close')),
             ('newyork_open', self.session_buffers.get('newyork_open')),
             ('newyork_close', self.session_buffers.get('newyork_close'))
         ]
-
+        
         for zone_name, zone_config in buffer_zones:
             if not zone_config:
                 continue
-
-            # Parse transition time
+            
             transition_time = datetime.strptime(zone_config['time'], "%H:%M").time()
             transition_minutes = transition_time.hour * 60 + transition_time.minute
-
-            # Get buffer in minutes
             buffer_mins = zone_config.get('buffer_minutes', 0)
-
-            # Calculate buffer window
+            
             buffer_start = transition_minutes - buffer_mins
             buffer_end = transition_minutes + buffer_mins
-
-            # Check if current time is within buffer (handle negative values for day wrap)
-            if buffer_start < 0:
-                # Wraps to previous day (e.g., 06:30 - 30 = -30 = 23:30 previous day)
-                buffer_start += 1440  # Add 24 hours in minutes
-                if current_minutes >= buffer_start or current_minutes <= buffer_end:
-                    return True, f"{zone_name} buffer zone ({zone_config.get('reason', 'transition volatility')})"
-            elif buffer_end >= 1440:
-                # Wraps to next day
-                buffer_end -= 1440
-                if current_minutes >= buffer_start or current_minutes <= buffer_end:
-                    return True, f"{zone_name} buffer zone ({zone_config.get('reason', 'transition volatility')})"
-            else:
-                # Normal case - no day wrap
-                if buffer_start <= current_minutes <= buffer_end:
-                    return True, f"{zone_name} buffer zone ({zone_config.get('reason', 'transition volatility')})"
-
+            
+            def is_in_window(cm, start, end, duration=1440):
+                if start < 0:
+                    return cm >= (start + duration) or cm <= end
+                elif end >= duration:
+                    return cm >= start or cm <= (end - duration)
+                else:
+                    return start <= cm <= end
+            
+            if is_in_window(current_minutes, buffer_start, buffer_end):
+                return True, f"{zone_name} buffer ({zone_config.get('reason', 'transition')})"
+        
         return False, ""
 
     def check_hard_filters(self, spread, atr_current, equity):
