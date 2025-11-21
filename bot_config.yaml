@@ -1,5 +1,5 @@
 # ============================================================================
-# GOLDBOT - XAUUSD Breakout Trading System Configuration
+# GOLDBOT - XAUUSD Breakout Trading System (FIXED CONFIG)
 # ============================================================================
 
 # --- MetaTrader5 Connection ---
@@ -8,13 +8,13 @@ mt5:
   password: "@@Sharafatnh6@@" # Replace with your MT5 password
   server: "Exness-MT5Trial17"  # Replace with your broker server name
   timeout: 60000            # Connection timeout in ms
-  path: C:\Program Files\MetaTrader 5\terminal64.exe                # Path to MT5 terminal (leave empty for auto-detect)
+  path: C:\Program Files\MetaTrader 5\terminal64.exe                  # Leave empty for auto-detect
 
 # --- Telegram Configuration ---
 telegram:
-  enabled: false
-  bot_token: "YOUR_BOT_TOKEN_HERE"  # Replace with your Telegram bot token
-  chat_id: "YOUR_CHAT_ID_HERE"      # Replace with your Telegram chat ID
+  enabled: false            # Set true after testing
+  bot_token: "YOUR_BOT_TOKEN_HERE"
+  chat_id: "YOUR_CHAT_ID_HERE"
   send_startup: true
   send_trades: true
   send_errors: true
@@ -22,7 +22,7 @@ telegram:
 
 # --- Trading Symbol ---
 symbol: "XAUUSDm"
-point_value: 100.0         # XAUUSD contract size: 100 troy ounces per lot (FIX #1)
+point_value: 100.0         # XAUUSD contract size: 100 troy ounces per lot
 
 # --- Timeframes ---
 timeframes:
@@ -32,30 +32,30 @@ timeframes:
 
 # --- Risk Management (SCALPING) ---
 risk:
-  risk_per_trade: 0.08     # 8% default - scales down with account growth (see dynamic_risk_tiers)
-  max_position_risk: 16.0  # Maximum 16% in concurrent positions (2 trades @ 8%)
-  max_concurrent_trades: 1 # Maximum 2 simultaneous scalps
-  daily_loss_limit: 0.15   # 15% daily loss limit for scalping
-  weekly_loss_limit: 0.25  # 25% weekly loss limit
-  max_drawdown_limit: 0.30 # 30% max drawdown from peak
-  consecutive_loss_limit: 6 # Stop after 6 consecutive losses
-  min_equity: 10.0         # Scalping works from $10
+  risk_per_trade: 0.01     # 1% risk per trade (FIXED)
+  max_position_risk: 0.02  # Max 2% concurrent risk
+  max_concurrent_trades: 2 # Max 2 simultaneous positions
+  daily_loss_limit: 0.03   # Stop at 3% daily loss
+  weekly_loss_limit: 0.06  # Stop at 6% weekly loss
+  max_drawdown_limit: 0.10 # Max 10% drawdown from peak
+  consecutive_loss_limit: 3 # Stop after 3 consecutive losses
+  min_equity: 10.0         # Minimum $10 equity
 
-  # Dynamic risk scaling for account growth (equity ranges)
+  # Dynamic risk scaling (CORRECTED - lower for small accounts)
   dynamic_risk_tiers:
-    - max_equity: 50.0
-      risk_pct: 0.08       # 8% for accounts under $50
     - max_equity: 100.0
-      risk_pct: 0.05       # 5% for $50-$100
-    - max_equity: 500.0
-      risk_pct: 0.02       # 2% for $100-$500
+      risk_pct: 0.005      # 0.5% for accounts under $100
+    - max_equity: 1000.0
+      risk_pct: 0.01       # 1% for $100-$1000
+    - max_equity: 5000.0
+      risk_pct: 0.015      # 1.5% for $1000-$5000
     - max_equity: 9999999
-      risk_pct: 0.01       # 1% for accounts above $500
+      risk_pct: 0.02       # 2% max for large accounts
 
 # --- Position Sizing ---
 position:
   min_lot: 0.02            # Exness minimum lot size
-  max_lot: 10.0            # Maximum lot size
+  max_lot: 2.0             # Maximum lot size
   lot_step: 0.02           # Lot size increment
 
 # --- ATR / Volatility Settings ---
@@ -79,8 +79,6 @@ scoring:
     htf_bias_aligned: 10
     htf_bias_opposed: -10
     high_volatility: 5
-    volume_confirm: 5
-    narrow_range: -10
 
 # --- Session Windows (UTC) ---
 sessions:
@@ -94,109 +92,92 @@ sessions:
     start: "23:50"
     end: "00:10"
 
-# --- Session Transition Buffers (No-Trade Zones) ---
-# Avoid volatile periods around session opens/closes and overlaps
+# --- Session Transition Buffers ---
 session_buffers:
   enabled: true
 
   # Buffer around major session transitions (minutes)
-  # These create no-trade zones before/after these times
-
   london_open:
-    time: "08:30"              # Tokyo-London overlap starts here
-    buffer_minutes: 60         # 07:30 - 09:30 no-trade zone
+    time: "08:30"              # Tokyo-London overlap starts
+    buffer_minutes: 30         # 08:00-09:00 no-trade zone
     reason: "Tokyo-London overlap volatility"
-
-  london_close:
-    time: "16:00"
-    buffer_minutes: 30         # 15:30 - 16:30 no-trade zone
-    reason: "London close volatility"
-
+  
   newyork_open:
-    time: "13:00"              # London-NY overlap starts here
-    buffer_minutes: 30         # 12:30 - 13:30 no-trade zone
+    time: "13:00"              # London-NY overlap starts
+    buffer_minutes: 30         # 12:30-13:30 no-trade zone
     reason: "London-NY overlap volatility"
-
-  newyork_close:
-    time: "22:00"
-    buffer_minutes: 30         # 21:30 - 22:30 no-trade zone
-    reason: "NY close volatility"
 
 # --- News Filter ---
 news:
-  enabled: false           # Set to true to enable news filtering
+  enabled: false           # Set true after adding news API
   buffer_minutes: 30       # Minutes before/after high-impact news
 
 # --- Spread & Filters ---
 filters:
-  max_spread: 0.18         # Maximum allowed spread in $
+  max_spread: 0.30         # Maximum allowed spread in $
 
 # --- Retracement Settings ---
 retracement:
-  shallow_min: 0.10        # 10% minimum retrace for shallow entry
-  shallow_max: 0.40        # 40% maximum retrace for shallow entry
-  shallow_ratio: 0.30      # Default 30% retrace entry point
+  shallow_min: 0.10        # 10% minimum retrace
+  shallow_max: 0.40        # 40% maximum retrace
+  shallow_ratio: 0.30      # Default 30% retrace entry
 
-# --- Stop Loss & Take Profit ---
+# --- Stop Loss & Take Profit (SCALPING) ---
 stop_loss:
   buffer: 0.10             # $0.10 buffer above/below sweep wick
-  minimum: 2.50            # Minimum SL distance in $
+  minimum: 0.15            # 15 pips minimum SL (FIXED)
 
 take_profit:
-  tp1_multiplier: 0.8      # TP1 = 0.8R (quick scalp exit)
-  tp2_multiplier: 1.5      # TP2 = 1.5R (max scalp target)
-  partial_close_pct: 0.7   # Close 70% at TP1, let 30% run to TP2
+  tp1_multiplier: 1.0      # TP1 = 1.0R (FIXED)
+  tp2_multiplier: 2.0      # TP2 = 2.0R (FIXED)
+  partial_close_pct: 0.5   # Close 50% at TP1 (FIXED)
 
 # --- Trade Management (SCALPING) ---
 trade_management:
-  breakeven_at_r: 0.3      # Move to breakeven at 0.3R (early protection)
-  trail_at_r: 999.0        # Trailing DISABLED for scalping (use fixed TP only)
-  trail_atr_mult: 0.3      # Not used (trailing disabled)
-  max_hold_bars: 8         # Maximum 8 M5 bars = 40 minutes hold time
-  min_time_between_trades: 60   # Minimum 60 seconds between trades
-  max_trades_per_session: 20    # Up to 20 trades per session (scalping frequency)
-  cooloff_after_loss: 120       # 2 min cooloff after loss (quick recovery)
+  breakeven_at_r: 1.0      # Move to BE after TP1 hit
+  trail_at_r: 1.5          # Enable trailing at 1.5R (FIXED)
+  trail_atr_mult: 1.0      # Trail distance = 1.0 * ATR
+  max_hold_bars: 8         # Maximum 8 M5 bars = 40 minutes
+  min_time_between_trades: 300   # 5 min between trades
+  max_trades_per_session: 3      # Max 3 trades per session
+  cooloff_after_loss: 600        # 10 min cooloff after loss
 
 # --- Lookback Periods ---
 lookback:
   swing: 5                 # Bars to look back for swing high/low
-  avg_body: 10             # Period for average body size calculation
+  avg_body: 10             # Period for average body size
 
 # --- Entry Models ---
 entry_models:
   momentum_break:
     enabled: true
-    execution_type: "IOC"  # Immediate or Cancel
-    max_slippage: 0.05     # Maximum allowed slippage in $
+    execution_type: "IOC"
+    max_slippage: 0.10     # $0.10 max slippage
 
   shallow_retest:
     enabled: true
     execution_type: "LIMIT"
-    cancel_after_bars: 3   # Cancel limit order after N M5 bars
+    cancel_after_bars: 3   # Cancel limit order after 3 bars
 
   fvg_sniper:
-    enabled: true
-    execution_type: "LIMIT"
-    fvg_entry_ratio: 0.5   # Enter at 50% of FVG zone
-    cancel_after_bars: 5
+    enabled: false         # DISABLED until volume filter added
 
-# --- HTF Bias Settings ---
+# --- HTF Bias Settings (DISABLED) ---
 htf_bias:
-  enabled: true
-  ema_period: 20           # EMA period on H1 for bias
+  enabled: false           # Broken logic, disable for now
+  ema_period: 20
 
-# --- Impulse / Displacement Settings ---
+# --- Impulse Settings ---
 impulse:
   body_multiplier: 1.5     # Body must be 1.5x average
-  volume_enabled: false    # Volume confirmation (if available)
-  volume_multiplier: 1.2   # Volume must be 1.2x average
+  volume_enabled: false    # Volume data often unreliable in MT5
 
 # --- Operational Settings ---
 operational:
   loop_sleep_seconds: 1    # Sleep time in main loop
-  order_retry_attempts: 3  # Retry failed orders N times
+  order_retry_attempts: 3  # Retry failed orders 3 times
   order_retry_delay: 2     # Seconds between retries
-  log_level: "INFO"        # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  log_level: "INFO"
   log_file: "goldbot.log"
 
 # --- Backtest Settings ---
@@ -204,13 +185,13 @@ backtest:
   start_date: "2024-11-01"
   end_date: "2024-11-30"
   initial_balance: 100.0
-  commission_per_lot: 0.18  # Commission if applicable
+  commission_per_lot: 3.50  # Exness commission ~$3.50/lot
   generate_report: true
   report_file: "backtest_report.html"
 
 # --- Safety & Failsafes ---
 safety:
-  check_connection_interval: 60  # Check MT5 connection every N seconds
-  max_spread_multiplier: 2.0     # Exit if spread > normal * multiplier
-  idempotency_enabled: true      # Prevent duplicate orders
-  recheck_sl_tp: true            # Verify SL/TP after order placement
+  check_connection_interval: 60
+  max_spread_multiplier: 2.0
+  idempotency_enabled: true
+  recheck_sl_tp: true
