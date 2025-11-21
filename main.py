@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""XAUUSD Breakout Trading Bot - Clean, efficient, production-ready."""
+"""XAUUSD Breakout Trading Bot - Production Ready"""
 
 import sys
 import argparse
@@ -12,6 +12,8 @@ import pandas as pd
 import numpy as np
 import requests
 from pathlib import Path
+import threading
+import queue
 
 from analyst import MarketAnalyst
 from trader_and_manager import TradeManager
@@ -21,7 +23,6 @@ logger = logging.getLogger(__name__)
 # Constants
 CHECK_CONNECTION_INTERVAL = 300  # 5 minutes
 REGIME_CHECK_INTERVAL = 14400  # 4 hours
-
 
 def setup_logging(config):
     """Setup logging with clean, minimal output."""
@@ -51,7 +52,6 @@ def setup_logging(config):
     logger.info("GOLDBOT - XAUUSD Breakout Trading System")
     logger.info("")
 
-
 def load_config(path='bot_config.yaml'):
     """Load configuration from YAML."""
     try:
@@ -60,7 +60,6 @@ def load_config(path='bot_config.yaml'):
     except (FileNotFoundError, yaml.YAMLError) as e:
         logging.error(f"Config error: {e}")
         sys.exit(1)
-
 
 class TelegramNotifier:
     def __init__(self, config):
@@ -113,7 +112,6 @@ class TelegramNotifier:
         """Send error notification."""
         if self.enabled and self.send_errors:
             self._send(f"Error: {error_msg}")
-
 
 class MarketRegimeDetector:
     def __init__(self):
@@ -237,7 +235,6 @@ class MarketRegimeDetector:
 
         return None, current
 
-
 def connect_mt5(config):
     """Connect to MetaTrader5."""
     mt5_cfg = config['mt5']
@@ -274,7 +271,6 @@ def connect_mt5(config):
     logger.info(f"Symbol {symbol} ready | Spread: {info.spread} pts")
     return True
 
-
 def get_ohlc_data(symbol, timeframe, bars=500):
     """Fetch OHLC data from MT5."""
     rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, bars)
@@ -285,9 +281,8 @@ def get_ohlc_data(symbol, timeframe, bars=500):
     df.rename(columns={'tick_volume': 'volume'}, inplace=True)
     return df
 
-
 def run_live_trading(config):
-    """Run live trading with clean, minimal logging."""
+    """Run live trading with bar completion fix and async Telegram."""
     logger.info("Starting LIVE TRADING mode")
 
     telegram = TelegramNotifier(config)
@@ -295,8 +290,26 @@ def run_live_trading(config):
     trader = TradeManager(config)
     regime_detector = MarketRegimeDetector()
 
+    # FIX: Async Telegram queue
+    telegram_queue = queue.Queue()
+    
+    def telegram_worker():
+        while True:
+            try:
+                msg_type, data = telegram_queue.get(timeout=1)
+                if msg_type == 'trade':
+                    telegram.send_trade(data)
+                elif msg_type == 'error':
+                    telegram.send_error(data)
+                time.sleep(0.1)
+            except queue.Empty:
+                continue
+    
+    tele_thread = threading.Thread(target=telegram_worker, daemon=True)
+    tele_thread.start()
+
     if not connect_mt5(config):
-        telegram.send_error("Failed to connect to MT5")
+        telegram_queue.put(('error', "Failed to connect to MT5"))
         return
 
     symbol = config['symbol']
@@ -329,7 +342,7 @@ def run_live_trading(config):
                 if time.time() - last_connection_check >= CHECK_CONNECTION_INTERVAL:
                     if not mt5.terminal_info():
                         logger.error("MT5 connection lost, reconnecting...")
-                        telegram.send_error("MT5 connection lost")
+                        telegram_queue.put(('error', "MT5 connection lost"))
                         if not connect_mt5(config):
                             logger.error("Reconnection failed, retrying in 60s...")
                             time.sleep(60)
@@ -358,7 +371,7 @@ def run_live_trading(config):
                 if last_bar_time is None:
                     last_bar_time = current_bar_time
 
-                # Regime check (every 4 hours)
+                # Regime check
                 if last_regime_check is None or (now - last_regime_check).total_seconds() >= REGIME_CHECK_INTERVAL:
                     df_daily = get_ohlc_data(symbol, tf_map['D1'], 300)
                     if df_daily is not None:
@@ -369,7 +382,6 @@ def run_live_trading(config):
                         if not regime['favorable_for_breakouts']:
                             logger.warning("Unfavorable regime for breakouts")
 
-                        # Check degradation
                         cursor = trader.db_conn.cursor()
                         cursor.execute('SELECT * FROM trade_history ORDER BY exit_time DESC LIMIT 30')
                         recent_trades = [{'pnl': row[8], 'r_multiple': row[9]} for row in cursor.fetchall()]
@@ -393,19 +405,33 @@ def run_live_trading(config):
                     trader.reset_session_count()
                 last_session = current_session
 
-                # Get current price for position management
+                # Get current price
                 tick = mt5.symbol_info_tick(symbol)
                 current_price = tick.bid if tick else None
                 spread = tick.ask - tick.bid if tick else 999.0
 
-                # New bar check
+                # FIX: Wait for bar completion before analyzing
                 if current_bar_time > last_bar_time:
                     last_bar_time = current_bar_time
-
+                    logger.info(f"New M5 bar starting, waiting for completion...")
+                    
+                    # Wait 4.5 minutes for bar to close
+                    time.sleep(270)
+                    
+                    # Re-fetch completed data
+                    df_m5 = get_ohlc_data(symbol, primary_tf, 500)
+                    df_m1 = get_ohlc_data(symbol, confirm_tf, 500)
+                    
+                    if df_m5 is None or df_m1 is None:
+                        logger.warning("Data re-fetch failed, skipping this bar")
+                        time.sleep(loop_sleep)
+                        continue
+                    
+                    # NOW analyze the COMPLETED bar
+                    current_bar_time = df_m5.iloc[-1]['time']
+                    logger.info(f"M5 bar complete | Price: ${current_price:.2f} | Spread: ${spread:.2f}")
+                    
                     if current_price:
-                        logger.info(f"New M5 bar | Price: ${current_price:.2f} | Spread: ${spread:.2f}")
-
-                        # Analyze
                         analysis = analyst.analyze_market(
                             df_m5=df_m5,
                             df_m1=df_m1,
@@ -436,7 +462,8 @@ def run_live_trading(config):
                                     trade_info = result.get('position_info', result)
                                     trade_info['score'] = analysis['score']
                                     trade_info['risk_dollars'] = equity * config['risk']['risk_per_trade']
-                                    telegram.send_trade(trade_info)
+                                    # FIX: Async Telegram notification
+                                    telegram_queue.put(('trade', trade_info))
                                 else:
                                     logger.warning(f"Trade blocked: {result['reason']}")
                             else:
@@ -457,7 +484,7 @@ def run_live_trading(config):
 
             except Exception as e:
                 logger.error(f"Loop error: {e}", exc_info=True)
-                telegram.send_error(f"Loop error: {str(e)}")
+                telegram_queue.put(('error', f"Loop error: {str(e)}"))
                 time.sleep(loop_sleep)
 
     finally:
@@ -466,9 +493,8 @@ def run_live_trading(config):
         trader.close_database()
         mt5.shutdown()
 
-
 def run_backtest(config):
-    """Run scalping backtest using dedicated backtest module."""
+    """Run scalping backtest."""
     from backtest import ScalpingBacktest
 
     logger.info("Starting BACKTEST mode")
@@ -504,9 +530,9 @@ def run_backtest(config):
         logger.warning("No trades executed during backtest period")
         logger.warning("Possible reasons:")
         logger.warning("  1. No liquidity sweep setups detected")
-        logger.warning("  2. Spread too high (max allowed: $0.18)")
-        logger.warning("  3. Score threshold not met (need >60)")
-        logger.warning("  4. Outside trading sessions (London/NY)")
+        logger.warning("  2. Spread too high (max allowed: $0.30)")
+        logger.warning("  3. Score threshold not met (need >50)")
+        logger.warning("  4. Outside trading sessions")
         logger.warning("  5. ATR too low (need >$0.80)")
     else:
         logger.info(f"Winning Trades: {results['winning_trades']} ({results['win_rate']:.1f}%)")
@@ -522,9 +548,7 @@ def run_backtest(config):
         logger.info(f"Exit Reasons: {results['exit_reasons']}")
 
     logger.info("")
-
     mt5.shutdown()
-
 
 def main():
     """Entry point."""
@@ -551,7 +575,6 @@ def main():
         run_live_trading(config)
     else:
         run_backtest(config)
-
 
 if __name__ == "__main__":
     main()
